@@ -3,7 +3,7 @@ mod varint;
 use std::io::{Write, Read};
 use std::cmp::Ordering;
 use std::str::from_utf8;
-use self::varint::put_uvarint;
+use self::varint::{put_uvarint, uvarint};
 
 const INSERT_THRESHOLD: usize = 1000;
 const CACHE_SIZE: usize = 256;
@@ -71,7 +71,10 @@ impl DSSCEncoder {
             self.insert(&buf);
             delta = buf.to_vec();
         }
-        let mut comp = vec![best.0 as u8, (best.1).0 as u8];
+        let mut offset_buf = [0; 10];
+        let offset_len = put_uvarint(&mut offset_buf, (best.1).0 as u64);
+        let mut comp = vec![best.0 as u8];
+        comp.extend_from_slice(&offset_buf[0..offset_len]);
         DSSCEncoder::zrle(&delta, &mut comp);
         /*
         println!("comp: {:?}", comp);
@@ -101,7 +104,7 @@ impl DSSCEncoder {
     }
 
     fn zrle(buf: &[u8], out: &mut Vec<u8>) {
-        let mut zcount = 0u8;
+        let mut zcount = 0u8; // FIXME I need to handle cases with more than 255 zeroes
         for i in 0..buf.len() {
             if buf[i] == 0 {
                 zcount += 1;
@@ -171,7 +174,11 @@ impl DSSCDecoder {
     }
 
     pub fn decode(&mut self, buf: &[u8]) -> Vec<u8> {
-        let mut delta = DSSCDecoder::zrld(&buf[2..]);
+        let (offset, offset_len) = uvarint(&buf[1..]);
+        if offset_len <= 0 {
+            panic!("Offset is wrong")
+        }
+        let mut delta = DSSCDecoder::zrld(&buf[1 + offset_len as usize..]);
         if self.cache.len() == 0 {
             self.insert(&delta);
             return delta;
@@ -180,7 +187,7 @@ impl DSSCDecoder {
         DSSCDecoder::undelta(
             &mut delta,
             &self.cache[buf[0] as usize].data,
-            buf[1] as usize,
+            offset as usize,
         );
         self.cache[buf[0] as usize].hits += 1;
         if sum > INSERT_THRESHOLD {
