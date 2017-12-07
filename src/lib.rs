@@ -1,9 +1,9 @@
-extern crate integer_encoding;
+mod varint;
 
 use std::io::{Write, Read};
 use std::cmp::Ordering;
 use std::str::from_utf8;
-use integer_encoding::VarInt;
+use self::varint::put_uvarint;
 
 const INSERT_THRESHOLD: usize = 1000;
 const CACHE_SIZE: usize = 256;
