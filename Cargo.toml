@@ -13,3 +13,4 @@ path = "src/linedssc/main.rs"
 
 [dependencies]
 byteorder = "1.1.0"
+integer-encoding = "1.0.5"

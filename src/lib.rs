@@ -1,6 +1,9 @@
+extern crate integer_encoding;
+
 use std::io::{Write, Read};
 use std::cmp::Ordering;
 use std::str::from_utf8;
+use integer_encoding::VarInt;
 
 const INSERT_THRESHOLD: usize = 1000;
 const CACHE_SIZE: usize = 256;
@@ -72,13 +75,14 @@ impl DSSCEncoder {
         DSSCEncoder::zrle(&delta, &mut comp);
         /*
         println!("comp: {:?}", comp);
+        */
         eprintln!(
             "compression ratio {}/{} = {}",
             comp.len(),
             buf.len(),
             comp.len() as f32 / buf.len() as f32
         );
-        */
+
         comp
     }
 
