@@ -67,13 +67,15 @@ impl DSSCEncoder {
         }
         let mut comp = vec![best.0 as u8, (best.1).0 as u8];
         DSSCEncoder::zrle(&delta, &mut comp);
-        //println!("comp: {:?}", comp);
+        /*
+        println!("comp: {:?}", comp);
         eprintln!(
             "compression ratio {}/{} = {}",
             comp.len(),
             buf.len(),
             comp.len() as f32 / buf.len() as f32
         );
+        */
         comp
     }
 
@@ -167,13 +169,13 @@ impl DSSCDecoder {
             self.insert(&delta);
             return delta;
         }
+        let sum = delta.iter().fold(0, |acc, &x| acc + x as usize);
         DSSCDecoder::undelta(
             &mut delta,
             &self.cache[buf[0] as usize].data,
             buf[1] as usize,
         );
         self.cache[buf[0] as usize].hits += 1;
-        let sum = delta.iter().fold(0, |acc, &x| acc + x as usize);
         if sum > INSERT_THRESHOLD {
             self.insert(&delta)
         }
