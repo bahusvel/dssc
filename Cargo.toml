@@ -3,4 +3,13 @@ name = "dssc"
 version = "0.1.0"
 authors = ["Denis Lavrov <bahus.vel@gmail.com>"]
 
+[lib]
+name = "dssc"
+path = "src/lib.rs"
+
+[[bin]]
+name = "linedssc"
+path = "src/linedssc/main.rs"
+
 [dependencies]
+byteorder = "1.1.0"

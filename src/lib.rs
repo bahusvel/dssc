@@ -29,11 +29,15 @@ impl PartialEq for CacheEntry {
     }
 }
 
-struct DSSCEncoder {
+pub struct DSSCEncoder {
     cache: Vec<CacheEntry>,
 }
 
 impl DSSCEncoder {
+    pub fn new() -> DSSCEncoder {
+        DSSCEncoder { cache: Vec::new() }
+    }
+
     pub fn encode(&mut self, buf: &[u8]) -> Vec<u8> {
         let mut best = (0, (0, <usize>::max_value()));
         let delta;
@@ -64,7 +68,7 @@ impl DSSCEncoder {
         let mut comp = vec![best.0 as u8, (best.1).0 as u8];
         DSSCEncoder::zrle(&delta, &mut comp);
         //println!("comp: {:?}", comp);
-        println!(
+        eprintln!(
             "compression ratio {}/{} = {}",
             comp.len(),
             buf.len(),
@@ -148,12 +152,16 @@ impl DSSCEncoder {
     }
 }
 
-struct DSSCDecoder {
+pub struct DSSCDecoder {
     cache: Vec<CacheEntry>,
 }
 
 impl DSSCDecoder {
-    fn decode(&mut self, buf: &[u8]) -> Vec<u8> {
+    pub fn new() -> DSSCDecoder {
+        DSSCDecoder { cache: Vec::new() }
+    }
+
+    pub fn decode(&mut self, buf: &[u8]) -> Vec<u8> {
         let mut delta = DSSCDecoder::zrld(&buf[2..]);
         if self.cache.len() == 0 {
             self.insert(&delta);
