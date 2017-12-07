@@ -1,0 +1,6 @@
+[package]
+name = "dssc"
+version = "0.1.0"
+authors = ["Denis Lavrov <bahus.vel@gmail.com>"]
+
+[dependencies]
