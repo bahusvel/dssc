@@ -44,15 +44,18 @@ impl DSSCEncoder {
         if self.cache.len() != 0 {
             for entry in 0..self.cache.len() {
                 let cres = DSSCEncoder::convolve(&buf, &self.cache[entry].data);
+                if cres.0 > 255 {
+                    panic!("Large offsets are not supported yet");
+                }
                 if cres.1 < (best.1).1 {
                     best = (entry, cres)
                 }
             }
+            delta = DSSCEncoder::delta(&buf, &self.cache[best.0].data, (best.1).0);
             self.cache[best.0].hits += 1;
             if (best.1).1 > INSERT_THRESHOLD {
-                self.insert(&buf)
+                self.insert(&buf);
             }
-            delta = DSSCEncoder::delta(&buf, &self.cache[best.0].data, (best.1).0);
         /*
             println!(
                 "delta: {:?} from {:?}@{}",
@@ -177,7 +180,7 @@ impl DSSCDecoder {
         );
         self.cache[buf[0] as usize].hits += 1;
         if sum > INSERT_THRESHOLD {
-            self.insert(&delta)
+            self.insert(&delta);
         }
         delta
     }
