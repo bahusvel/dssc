@@ -18,12 +18,12 @@ impl DSSCEncoder {
     }
 
     pub fn encode(&mut self, buf: &[u8]) -> Vec<u8> {
-        let mut best = (0, (0, <usize>::max_value()));
+        let mut best = (0, (0, 0));
         let delta;
         if self.cache.len() != 0 {
             for entry in 0..self.cache.len() {
                 let cres = DSSCEncoder::convolve(&buf, &self.cache[entry].data);
-                if cres.1 < (best.1).1 {
+                if cres.1 > (best.1).1 {
                     best = (entry, cres)
                 }
             }
@@ -47,11 +47,12 @@ impl DSSCEncoder {
         }
 
         eprintln!(
-            "cr {}/{}={} offset {}",
+            "cr {}/{}={} offset {} matched {}",
             comp.len(),
             buf.len(),
             cr,
             (best.1).0,
+            (best.1).1,
         );
 
         comp
@@ -93,22 +94,24 @@ impl DSSCEncoder {
 
     //return (offset, score)
     fn convolve(needle: &[u8], haystack: &[u8]) -> (usize, usize) {
-        let mut best = (0, <usize>::max_value());
+        let mut best = (0, 0);
         for offset in 0..haystack.len() {
             let overrun = (offset + needle.len()) as isize - haystack.len() as isize;
             let mut score = 0usize;
             let slice = if overrun > 0 {
-                score += needle[needle.len() - overrun as usize..needle.len()]
-                    .iter()
-                    .fold(0, |acc, &x| acc + x as usize);
                 &haystack[offset..offset + (needle.len() - overrun as usize)]
             } else {
                 &haystack[offset..offset + needle.len()]
             };
-            score += slice.iter().zip(needle).fold(0, |acc, (&x, &y)| {
-                acc + (x ^ y) as usize
-            });
-            if score < best.1 {
+            score += slice.iter().zip(needle).fold(
+                0,
+                |acc, (&x, &y)| if (x ^ y == 0) {
+                    acc + 1
+                } else {
+                    acc
+                },
+            );
+            if score > best.1 {
                 best = (offset, score)
             }
         }
