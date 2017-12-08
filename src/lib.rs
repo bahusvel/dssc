@@ -1,63 +1,15 @@
 pub mod varint;
+mod cache;
 
 use std::io::{Write, Read};
-use std::cmp::Ordering;
 use std::str::from_utf8;
 use self::varint::{put_uvarint, uvarint};
+use self::cache::{VecCache, DSSCache};
 
-const INSERT_THRESHOLD: usize = 1000;
-const CACHE_SIZE: usize = 256;
-
-#[derive(Eq)]
-struct CacheEntry {
-    hits: usize,
-    data: Vec<u8>,
-}
-
-impl Ord for CacheEntry {
-    fn cmp(&self, other: &CacheEntry) -> Ordering {
-        self.hits.cmp(&other.hits)
-    }
-}
-
-impl PartialOrd for CacheEntry {
-    fn partial_cmp(&self, other: &CacheEntry) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl PartialEq for CacheEntry {
-    fn eq(&self, other: &CacheEntry) -> bool {
-        self.hits == other.hits
-    }
-}
-
-type VecCache = Vec<CacheEntry>;
-
-trait DSSCache {
-    fn cache_insert(&mut self, buf: &[u8]);
-}
+const INSERT_THRESHOLD: f32 = 0.5;
 
 pub struct DSSCEncoder {
     cache: VecCache,
-}
-
-impl DSSCache for VecCache {
-    fn cache_insert(&mut self, buf: &[u8]) {
-        self.sort_unstable();
-        let len = self.len();
-        if len == CACHE_SIZE {
-            self[len - 1] = CacheEntry {
-                hits: 0,
-                data: buf.to_vec(),
-            }
-        } else {
-            self.push(CacheEntry {
-                hits: 0,
-                data: buf.to_vec(),
-            })
-        }
-    }
 }
 
 impl DSSCEncoder {
@@ -77,34 +29,29 @@ impl DSSCEncoder {
             }
             delta = DSSCEncoder::delta(&buf, &self.cache[best.0].data, (best.1).0);
             self.cache[best.0].hits += 1;
-            if (best.1).1 > INSERT_THRESHOLD {
-                self.cache.cache_insert(&buf);
-            }
-        /*
-            println!(
-                "delta: {:?} from {:?}@{}",
-                delta,
-                &self.cache[best.0].data,
-                (best.1).0
-            );
-            */
         } else {
-            self.cache.cache_insert(&buf);
             delta = buf.to_vec();
         }
+
+        let mut comp = vec![best.0 as u8];
+
         let mut offset_buf = [0; 10];
         let offset_len = put_uvarint(&mut offset_buf, (best.1).0 as u64);
-        let mut comp = vec![best.0 as u8];
         comp.extend_from_slice(&offset_buf[0..offset_len]);
+
         DSSCEncoder::zrle(&delta, &mut comp);
-        /*
-        println!("comp: {:?}", comp);
-        */
+        let cr = comp.len() as f32 / buf.len() as f32;
+
+        if cr > INSERT_THRESHOLD {
+            self.cache.cache_insert(&buf);
+        }
+
         eprintln!(
-            "compression ratio {}/{} = {}",
+            "cr {}/{}={} offset {}",
             comp.len(),
             buf.len(),
-            comp.len() as f32 / buf.len() as f32
+            cr,
+            (best.1).0,
         );
 
         comp
@@ -195,7 +142,8 @@ impl DSSCDecoder {
             offset as usize,
         );
         self.cache[buf[0] as usize].hits += 1;
-        if sum > INSERT_THRESHOLD {
+        let cr = buf.len() as f32 / delta.len() as f32;
+        if cr > INSERT_THRESHOLD {
             self.cache.cache_insert(&delta);
         }
         delta
