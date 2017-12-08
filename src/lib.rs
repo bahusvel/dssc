@@ -1,4 +1,4 @@
-mod varint;
+pub mod varint;
 
 use std::io::{Write, Read};
 use std::cmp::Ordering;
@@ -32,8 +32,32 @@ impl PartialEq for CacheEntry {
     }
 }
 
+type VecCache = Vec<CacheEntry>;
+
+trait DSSCache {
+    fn cache_insert(&mut self, buf: &[u8]);
+}
+
 pub struct DSSCEncoder {
-    cache: Vec<CacheEntry>,
+    cache: VecCache,
+}
+
+impl DSSCache for VecCache {
+    fn cache_insert(&mut self, buf: &[u8]) {
+        self.sort_unstable();
+        let len = self.len();
+        if len == CACHE_SIZE {
+            self[len - 1] = CacheEntry {
+                hits: 0,
+                data: buf.to_vec(),
+            }
+        } else {
+            self.push(CacheEntry {
+                hits: 0,
+                data: buf.to_vec(),
+            })
+        }
+    }
 }
 
 impl DSSCEncoder {
@@ -47,9 +71,6 @@ impl DSSCEncoder {
         if self.cache.len() != 0 {
             for entry in 0..self.cache.len() {
                 let cres = DSSCEncoder::convolve(&buf, &self.cache[entry].data);
-                if cres.0 > 255 {
-                    panic!("Large offsets are not supported yet");
-                }
                 if cres.1 < (best.1).1 {
                     best = (entry, cres)
                 }
@@ -57,7 +78,7 @@ impl DSSCEncoder {
             delta = DSSCEncoder::delta(&buf, &self.cache[best.0].data, (best.1).0);
             self.cache[best.0].hits += 1;
             if (best.1).1 > INSERT_THRESHOLD {
-                self.insert(&buf);
+                self.cache.cache_insert(&buf);
             }
         /*
             println!(
@@ -68,7 +89,7 @@ impl DSSCEncoder {
             );
             */
         } else {
-            self.insert(&buf);
+            self.cache.cache_insert(&buf);
             delta = buf.to_vec();
         }
         let mut offset_buf = [0; 10];
@@ -123,22 +144,6 @@ impl DSSCEncoder {
         }
     }
 
-    fn insert(&mut self, buf: &[u8]) {
-        self.cache.sort_unstable();
-        let len = self.cache.len();
-        if len == CACHE_SIZE {
-            self.cache[len - 1] = CacheEntry {
-                hits: 0,
-                data: buf.to_vec(),
-            }
-        } else {
-            self.cache.push(CacheEntry {
-                hits: 0,
-                data: buf.to_vec(),
-            })
-        }
-    }
-
     //return (offset, score)
     fn convolve(needle: &[u8], haystack: &[u8]) -> (usize, usize) {
         let mut best = (0, <usize>::max_value());
@@ -165,7 +170,7 @@ impl DSSCEncoder {
 }
 
 pub struct DSSCDecoder {
-    cache: Vec<CacheEntry>,
+    cache: VecCache,
 }
 
 impl DSSCDecoder {
@@ -180,7 +185,7 @@ impl DSSCDecoder {
         }
         let mut delta = DSSCDecoder::zrld(&buf[1 + offset_len as usize..]);
         if self.cache.len() == 0 {
-            self.insert(&delta);
+            self.cache.cache_insert(&delta);
             return delta;
         }
         let sum = delta.iter().fold(0, |acc, &x| acc + x as usize);
@@ -191,7 +196,7 @@ impl DSSCDecoder {
         );
         self.cache[buf[0] as usize].hits += 1;
         if sum > INSERT_THRESHOLD {
-            self.insert(&delta);
+            self.cache.cache_insert(&delta);
         }
         delta
     }
@@ -223,22 +228,6 @@ impl DSSCDecoder {
             }
         }
         out
-    }
-
-    fn insert(&mut self, buf: &[u8]) {
-        self.cache.sort_unstable();
-        let len = self.cache.len();
-        if len == CACHE_SIZE {
-            self.cache[len - 1] = CacheEntry {
-                hits: 0,
-                data: buf.to_vec(),
-            }
-        } else {
-            self.cache.push(CacheEntry {
-                hits: 0,
-                data: buf.to_vec(),
-            })
-        }
     }
 }
 

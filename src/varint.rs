@@ -1,3 +1,4 @@
+use std::io::{Read, Error, ErrorKind};
 // these are roughly ported from https://golang.org/src/encoding/binary/varint.go
 
 pub fn put_uvarint(buf: &mut [u8], mut x: u64) -> usize {
@@ -26,6 +27,26 @@ pub fn uvarint(buf: &[u8]) -> (u64, isize) {
         s += 7;
     }
     (0u64, 0isize)
+}
+
+pub fn read_uvarint(r: &mut Read) -> Result<u64, Error> {
+    let mut x = 0u64;
+    let mut s = 0isize;
+    let mut i = 0;
+    let mut b = [0; 1];
+    loop {
+        r.read(&mut b)?;
+        if b[0] < 0x80 {
+            if i > 9 || i == 9 && b[0] > 1 {
+                return Err(Error::new(ErrorKind::Other, "Overflow")); // overflow
+            }
+            return Ok(x | (b[0] as u64) << s);
+        }
+        x |= ((b[0] & 0x7f) as u64) << s;
+        s += 7;
+        i += 1;
+    }
+    Ok(0)
 }
 
 #[test]

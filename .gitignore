@@ -2,4 +2,5 @@
 /target/
 **/*.rs.bk
 Cargo.lock
-*.blog
+*log
+*.gz
