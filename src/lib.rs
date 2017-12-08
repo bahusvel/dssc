@@ -1,7 +1,8 @@
+#![feature(iterator_step_by)]
+
 pub mod varint;
 mod cache;
 
-use std::io::{Write, Read};
 use std::str::from_utf8;
 use self::varint::{put_uvarint, uvarint};
 use self::cache::{VecCache, DSSCache};
@@ -105,7 +106,7 @@ impl DSSCEncoder {
             };
             score += slice.iter().zip(needle).fold(
                 0,
-                |acc, (&x, &y)| if (x ^ y == 0) {
+                |acc, (&x, &y)| if x ^ y == 0 {
                     acc + 1
                 } else {
                     acc
@@ -182,27 +183,61 @@ impl DSSCDecoder {
     }
 }
 
-#[test]
-pub fn encode() {
-    let mut encoder = DSSCEncoder { cache: Vec::new() };
-    encoder.encode("Hello1World".as_bytes());
-    encoder.encode("Hello World".as_bytes());
+enum Block<'a> {
+    Delta {offset: usize, len: usize},
+    Original (&'a [u8])
+}
+
+const CHUNK_SIZE: usize = 4;
+
+// for each haystack returns a list of indexes where each chunk of needle was found, 0 means not found
+fn chunk_match(needle: &[u8], haystacks: &Vec<Vec<u8>>) -> Vec<Vec<usize>> {
+    let mut results = Vec::new();
+    for haystack in haystacks {
+        results.push(
+            needle
+                .chunks(CHUNK_SIZE)
+                .map(|chunk| {
+                    for hi in 0..haystack.len() - CHUNK_SIZE {
+                        if &haystack[hi..hi + CHUNK_SIZE] == chunk {
+                            return hi + 1;
+                        }
+                    }
+                    return 0;
+                })
+                .collect(),
+        )
+    }
+    return results;
+}
+
+fn expand_blocks<'a>(needle: &'a [u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<Block<'a>>{
+    let vec = Vec::new();
+    for &r in result {
+        if r == 0 {
+            continue
+        }
+    }
+    vec
+}
+
+fn chunk_compressor(needle: &[u8], haystacks: &Vec<Vec<u8>>) {
+    let matches = chunk_match(needle, haystacks);
+    println!("matches {:?}", matches);
+    let max: usize = matches.iter().map(|m| m.iter().filter(|&&o| o != 0).count()).max().expect("haystacks are empty");
+    let max_matches = matches.iter().filter(|m| m.iter().filter(|&&o| o != 0).count() == max).for_each(|m| println!("{:?}", m));
+
+    //println!("max matches {:?}", max_matches);
 }
 
 #[test]
-pub fn zrld() {
-    println!("zrld {:?}", DSSCDecoder::zrld(&[0, 5, 17, 0, 5]));
-}
-
-#[test]
-pub fn undelta() {
-    let mut buf = [0, 0, 0, 0, 0, 17, 0, 0, 0, 0, 0];
-    DSSCDecoder::undelta(
-        &mut buf,
-        &[72, 101, 108, 108, 111, 49, 87, 111, 114, 108, 100],
-        0,
-    );
-    println!("undelta {:?}", &buf);
+pub fn chunk_test() {
+    let haystacks = vec![
+        "Hello Denis Worlds".as_bytes().to_vec(),
+        "Test Worlds".as_bytes().to_vec(),
+        "Test Bananas".as_bytes().to_vec(),
+    ];
+    chunk_compressor("Hello Test Worlds".as_bytes(), &haystacks);
 }
 
 #[test]

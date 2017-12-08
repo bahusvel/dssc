@@ -46,7 +46,6 @@ pub fn read_uvarint(r: &mut Read) -> Result<u64, Error> {
         s += 7;
         i += 1;
     }
-    Ok(0)
 }
 
 #[test]
