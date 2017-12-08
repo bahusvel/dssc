@@ -10,13 +10,13 @@ pub struct CacheEntry {
 
 impl Ord for CacheEntry {
     fn cmp(&self, other: &CacheEntry) -> Ordering {
-        self.hits.cmp(&other.hits)
+        self.hits.cmp(&other.hits).reverse()
     }
 }
 
 impl PartialOrd for CacheEntry {
     fn partial_cmp(&self, other: &CacheEntry) -> Option<Ordering> {
-        Some(self.cmp(other))
+        Some(self.cmp(other).reverse())
     }
 }
 

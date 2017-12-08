@@ -4,8 +4,7 @@ extern crate byteorder;
 use dssc::{DSSCDecoder, DSSCEncoder};
 use dssc::varint::{put_uvarint, read_uvarint};
 use std::env;
-use std::io::{stdin, stdout, Read, Write, Stdin, Error};
-use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use std::io::{stdin, stdout, Read, Write, Error};
 
 fn encode() -> Result<(), Error> {
     let mut encoder = DSSCEncoder::new();

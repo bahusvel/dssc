@@ -183,11 +183,6 @@ impl DSSCDecoder {
     }
 }
 
-enum Block<'a> {
-    Delta {offset: usize, len: usize},
-    Original (&'a [u8])
-}
-
 const CHUNK_SIZE: usize = 4;
 
 // for each haystack returns a list of indexes where each chunk of needle was found, 0 means not found
@@ -211,12 +206,67 @@ fn chunk_match(needle: &[u8], haystacks: &Vec<Vec<u8>>) -> Vec<Vec<usize>> {
     return results;
 }
 
-fn expand_blocks<'a>(needle: &'a [u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<Block<'a>>{
-    let vec = Vec::new();
-    for &r in result {
-        if r == 0 {
-            continue
+#[derive(Debug)]
+enum Block {
+    Delta { offset: usize, len: usize },
+    Original { needle_off: usize, len: usize },
+}
+
+impl Block {
+    fn fit(&mut self, needle: &[u8], needle_off: usize, haystack: &Vec<u8>) {
+        if let &mut Block::Delta {
+            offset: ref mut offset,
+            len: ref mut len,
+        } = self
+        {
+            let mut bi = 0;
+            let mut od = 0;
+            while (needle_off - bi) > 0 && (*offset - bi) > 0 &&
+                needle[needle_off - bi] == haystack[*offset - bi]
+            {
+                od += 1;
+                *len += 1;
+                bi += 1;
+            }
+            let mut fi = *len;
+            println!(
+                "{:?}\n{:?}",
+                from_utf8(&needle[needle_off..]),
+                from_utf8(&haystack[*offset..])
+            );
+            while (needle_off + fi) < needle.len() && (*offset + fi) < haystack.len() &&
+                needle[needle_off + fi] == haystack[*offset + fi]
+            {
+                *len += 1;
+                fi += 1;
+            }
+            *offset -= od;
         }
+    }
+}
+
+
+fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<Block> {
+    let mut vec = Vec::new();
+    let mut ri = 0;
+    while ri < result.len() {
+        if result[ri] != 0 {
+            let bi = ri;
+            let (mut offset, mut len) = (result[ri] - 1, 4);
+            ri += 1;
+            while ri < result.len() && result[ri] != 0 {
+                len += 4;
+                ri += 1;
+            }
+            let mut block = Block::Delta {
+                offset: offset,
+                len: len,
+            };
+            block.fit(needle, bi * 4, haystack);
+            vec.push(block);
+            continue;
+        }
+        ri += 1;
     }
     vec
 }
@@ -224,8 +274,18 @@ fn expand_blocks<'a>(needle: &'a [u8], haystack: &Vec<u8>, result: &Vec<usize>) 
 fn chunk_compressor(needle: &[u8], haystacks: &Vec<Vec<u8>>) {
     let matches = chunk_match(needle, haystacks);
     println!("matches {:?}", matches);
-    let max: usize = matches.iter().map(|m| m.iter().filter(|&&o| o != 0).count()).max().expect("haystacks are empty");
-    let max_matches = matches.iter().filter(|m| m.iter().filter(|&&o| o != 0).count() == max).for_each(|m| println!("{:?}", m));
+    let max: usize = matches
+        .iter()
+        .map(|m| m.iter().filter(|&&o| o != 0).count())
+        .max()
+        .expect("haystacks are empty");
+    for (hi, result) in matches.iter().enumerate() {
+        if result.iter().filter(|&&o| o != 0).count() != max {
+            continue;
+        }
+        println!("{}:{:?}", hi, expand_blocks(needle, &haystacks[hi], result));
+
+    }
 
     //println!("max matches {:?}", max_matches);
 }
