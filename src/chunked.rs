@@ -18,7 +18,7 @@ impl Compressor for ChunkedCompressor {
             return 0;
         }
         let matches = chunk_match(needle, &cache);
-        println!("matches {:?}", matches);
+        eprintln!("matches {:?}", matches);
         let max: usize = matches
             .iter()
             .map(|m| m.iter().filter(|&&o| o != 0).count())
@@ -39,13 +39,13 @@ impl Compressor for ChunkedCompressor {
                 max_block = (score, hi, Some(blocks))
             }
         }
-        println!("{:?}", max_block.2);
+        eprintln!("{:?}", max_block.2);
         out_buf.push(max_block.1 as u8);
         for block in max_block.2.expect("No candidate was found") {
             block.encode(needle, out_buf);
         }
-        println!("{:?} needle", needle);
-        println!("{:?} output", out_buf);
+        eprintln!("{:?} needle", needle);
+        eprintln!("{:?} output", out_buf);
         max_block.1
     }
 
@@ -150,10 +150,8 @@ impl Block {
             self.len += 1;
             fi += 1;
         }
-        println!("before {}", self.offset);
         self.offset -= od;
         self.needle_off -= od;
-        println!("counted {}", self.offset);
     }
 
     fn encode(&self, needle: &[u8], buf: &mut Vec<u8>) {
