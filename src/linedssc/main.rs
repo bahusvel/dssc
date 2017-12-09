@@ -2,12 +2,13 @@ extern crate dssc;
 extern crate byteorder;
 
 use dssc::{DSSCDecoder, DSSCEncoder};
+use dssc::convolve::ConvolveCompressor;
 use dssc::varint::{put_uvarint, read_uvarint};
 use std::env;
 use std::io::{stdin, stdout, Read, Write, Error};
 
 fn encode() -> Result<(), Error> {
-    let mut encoder = DSSCEncoder::new();
+    let mut encoder = DSSCEncoder::new(&ConvolveCompressor {});
     let mut len_buf = [0; 10];
     loop {
         let mut input = String::new();
@@ -23,7 +24,7 @@ fn encode() -> Result<(), Error> {
 }
 
 fn decode() -> Result<(), Error> {
-    let mut decoder = DSSCDecoder::new();
+    let mut decoder = DSSCDecoder::new(&ConvolveCompressor {});
     loop {
         let mut buf = Vec::new();
         let len = read_uvarint(&mut stdin())?;
