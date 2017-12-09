@@ -273,15 +273,15 @@ fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<
     while ri < result.len() {
         if result[ri] != 0 {
             let bi = ri;
-            let (offset, mut len) = (result[ri] - 1, 4);
+            let (offset, mut len) = (result[ri] - 1, CHUNK_SIZE);
             ri += 1;
             while ri < result.len() && result[ri] != 0 {
-                len += 4;
+                len += CHUNK_SIZE;
                 ri += 1;
             }
             let mut block = Block {
                 block_type: BlockType::Delta,
-                needle_off: bi * 4,
+                needle_off: bi * CHUNK_SIZE,
                 offset: offset,
                 len: len,
             };
