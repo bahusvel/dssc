@@ -7,6 +7,16 @@ pub struct ChunkedCompressor {}
 
 impl Compressor for ChunkedCompressor {
     fn compress(&self, needle: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+        if cache.len() == 0 {
+            out_buf.push(0);
+            Block {
+                block_type: BlockType::Original,
+                offset: 0,
+                needle_off: 0,
+                len: needle.len(),
+            }.encode(needle, out_buf);
+            return 0;
+        }
         let matches = chunk_match(needle, &cache);
         println!("matches {:?}", matches);
         let max: usize = matches
@@ -34,14 +44,24 @@ impl Compressor for ChunkedCompressor {
         for block in max_block.2.expect("No candidate was found") {
             block.encode(needle, out_buf);
         }
-        println!("{:?}", needle);
-        println!("{:?}", out_buf);
+        println!("{:?} needle", needle);
+        println!("{:?} output", out_buf);
         max_block.1
     }
 
     fn decompress(&self, buf: &[u8], out_buf: &mut Vec<u8>, haystacks: &VecCache) -> usize {
         let hi = buf[0] as usize;
         let mut bi = 1;
+        if haystacks.len() == 0 {
+            bi += 1;
+            let (len, len_len) = uvarint(&buf[bi..]);
+            if len_len <= 0 {
+                panic!("Something is wrong with length varint");
+            }
+            bi += len_len as usize;
+            out_buf.extend_from_slice(&buf[bi..bi + len as usize]);
+            return 0;
+        }
         while bi < buf.len() {
             if buf[bi] == 0 {
                 //original

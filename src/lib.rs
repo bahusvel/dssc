@@ -76,20 +76,21 @@ impl<'a> DSSCDecoder<'a> {
 pub fn full_circle() {
     use std::str::from_utf8;
     use self::convolve::ConvolveCompressor;
+    use self::chunked::ChunkedCompressor;
     let mut encoder = DSSCEncoder {
         cache: Vec::new(),
-        comp: &ConvolveCompressor {},
+        comp: &ChunkedCompressor {},
     };
     let mut decoder = DSSCDecoder {
         cache: Vec::new(),
-        comp: &ConvolveCompressor {},
+        comp: &ChunkedCompressor {},
     };
     println!(
         "{:?}",
-        from_utf8(&decoder.decode(&encoder.encode("Hello1World".as_bytes())))
+        from_utf8(&decoder.decode(&encoder.encode("Hello1Worlds".as_bytes())))
     );
     println!(
         "{:?}",
-        from_utf8(&decoder.decode(&encoder.encode("Hello World".as_bytes())))
+        from_utf8(&decoder.decode(&encoder.encode("Hello Worlds".as_bytes())))
     );
 }
