@@ -227,16 +227,14 @@ impl Block {
         }
         let mut bi = 0;
         let mut od = 0;
-        let mut nod = 0;
+        let mut fi = self.len;
         while (self.needle_off - bi) > 0 && (self.offset - bi) > 0 &&
             needle[self.needle_off - bi] == haystack[self.offset - bi]
         {
             od += 1;
-            nod += 1;
             self.len += 1;
             bi += 1;
         }
-        let mut fi = self.len;
         while (self.needle_off + fi) < needle.len() && (self.offset + fi) < haystack.len() &&
             needle[self.needle_off + fi] == haystack[self.offset + fi]
         {
@@ -244,7 +242,7 @@ impl Block {
             fi += 1;
         }
         self.offset -= od;
-        self.needle_off -= nod;
+        self.needle_off -= od;
     }
 
     fn encode(&self, needle: &[u8], buf: &mut Vec<u8>) {
@@ -264,6 +262,38 @@ impl Block {
             }
         }
     }
+
+    fn decode_blocks(buf: &[u8], haystack: &Vec<u8>) -> Vec<u8> {
+        let mut data = Vec::new();
+        let mut bi = 0;
+        while bi < buf.len() {
+            if buf[bi] == 0 {
+                //original
+                bi += 1;
+                let (len, len_len) = uvarint(&buf[bi..]);
+                if len_len <= 0 {
+                    panic!("Something is wrong with length varint");
+                }
+                bi += len_len as usize;
+                data.extend_from_slice(&buf[bi..bi + len as usize]);
+                bi += len as usize;
+            } else {
+                let (mut offset, offset_len) = uvarint(&buf[bi..]);
+                if offset_len <= 0 {
+                    panic!("Something is wrong with offset varint");
+                }
+                offset -= 1;
+                bi += offset_len as usize;
+                let (len, len_len) = uvarint(&buf[bi..]);
+                if len_len <= 0 {
+                    panic!("Something is wrong with length varint");
+                }
+                bi += len_len as usize;
+                data.extend_from_slice(&haystack[offset as usize..offset as usize + len as usize]);
+            }
+        }
+        data
+    }
 }
 
 
@@ -275,7 +305,7 @@ fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<
             let bi = ri;
             let (offset, mut len) = (result[ri] - 1, CHUNK_SIZE);
             ri += 1;
-            while ri < result.len() && result[ri] != 0 {
+            while ri < result.len() && result[ri] == result[ri - 1] + CHUNK_SIZE {
                 len += CHUNK_SIZE;
                 ri += 1;
             }
@@ -316,7 +346,7 @@ fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<
     }
     if let Some(ref mut last_block) = blocks.last_mut() {
         if last_block.block_type == BlockType::Original {
-            last_block.len = (needle.len() - 1) - last_block.needle_off; // I am not sure about that -1
+            last_block.len = needle.len() - last_block.needle_off;
         }
     }
     blocks.retain(|b| b.len != 0);
@@ -346,6 +376,7 @@ fn chunk_compressor(needle: &[u8], haystacks: &Vec<Vec<u8>>) -> Vec<u8> {
             max_block = (score, hi, Some(blocks))
         }
     }
+    println!("{:?}", max_block.2);
     let mut buf = vec![max_block.1 as u8];
     for block in max_block.2.expect("No candidate was found") {
         block.encode(needle, &mut buf);
@@ -355,6 +386,11 @@ fn chunk_compressor(needle: &[u8], haystacks: &Vec<Vec<u8>>) -> Vec<u8> {
     buf
 }
 
+fn chunk_decompressor(buf: &[u8], haystacks: &Vec<Vec<u8>>) -> Vec<u8> {
+    let hi = buf[0] as usize;
+    Block::decode_blocks(&buf[1..], &haystacks[hi])
+}
+
 #[test]
 pub fn chunk_test() {
     let haystacks = vec![
@@ -362,7 +398,8 @@ pub fn chunk_test() {
         "Test Worlds".as_bytes().to_vec(),
         "Test Bananas".as_bytes().to_vec(),
     ];
-    chunk_compressor("Hello Test Worlds".as_bytes(), &haystacks);
+    let compressed = chunk_compressor("Hello Test Worlds".as_bytes(), &haystacks);
+    println!("{:?}", chunk_decompressor(&compressed, &haystacks));
 }
 
 #[test]
