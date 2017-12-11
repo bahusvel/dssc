@@ -35,6 +35,13 @@ impl<'a> DSSCEncoder<'a> {
             self.cache[hit_index].hits += 1;
         }
         let cr = out_buf.len() as f32 / buf.len() as f32;
+        eprintln!(
+            "cr {}/{}={} cache entry {}",
+            out_buf.len(),
+            buf.len(),
+            cr,
+            hit_index,
+        );
         if cr > INSERT_THRESHOLD {
             self.cache.cache_insert(&buf);
         }

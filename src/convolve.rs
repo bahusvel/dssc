@@ -25,17 +25,6 @@ impl Compressor for ConvolveCompressor {
         out_buf.extend_from_slice(&offset_buf[0..offset_len]);
 
         zrle(&delta, out_buf);
-        let cr = out_buf.len() as f32 / buf.len() as f32;
-
-        eprintln!(
-            "cr {}/{}={} offset {} matched {}",
-            out_buf.len(),
-            buf.len(),
-            cr,
-            (best.1).0,
-            (best.1).1,
-        );
-
         best.0
     }
     fn decompress(&self, buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {

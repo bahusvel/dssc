@@ -237,7 +237,7 @@ fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<
                     .last()
                     .map(|last| last.needle_off + last.len)
                     .unwrap_or(0),
-                if (ri * CHUNK_SIZE) < needle.len() {
+                if (ri * CHUNK_SIZE) < needle.len() && result[ri] != 0 {
                     ri * CHUNK_SIZE
                 } else {
                     needle.len()
