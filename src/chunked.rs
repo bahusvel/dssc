@@ -1,5 +1,6 @@
 use super::varint::{put_uvarint, uvarint};
 use super::{Compressor, VecCache};
+use std::fmt;
 
 const CHUNK_SIZE: usize = 4;
 
@@ -7,6 +8,8 @@ pub struct ChunkedCompressor {}
 
 impl Compressor for ChunkedCompressor {
     fn compress(&self, needle: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+        use std::str::from_utf8;
+        eprintln!{"{:?}", from_utf8(needle)};
         if cache.len() == 0 {
             out_buf.push(0);
             Block {
@@ -18,7 +21,7 @@ impl Compressor for ChunkedCompressor {
             return 0;
         }
         let matches = chunk_match(needle, &cache);
-        eprintln!("matches {:?}", matches);
+        //eprintln!("matches {:?}", matches);
         let max: usize = matches
             .iter()
             .map(|m| m.iter().filter(|&&o| o != 0).count())
@@ -44,8 +47,8 @@ impl Compressor for ChunkedCompressor {
         for block in max_block.2.expect("No candidate was found") {
             block.encode(needle, out_buf);
         }
-        eprintln!("{:?} needle", needle);
-        eprintln!("{:?} output", out_buf);
+        //eprintln!("{:?} needle", needle);
+        //eprintln!("{:?} output", out_buf);
         max_block.1
     }
 
@@ -98,22 +101,34 @@ impl Compressor for ChunkedCompressor {
 fn chunk_match(needle: &[u8], haystacks: &VecCache) -> Vec<Vec<usize>> {
     let mut results = Vec::new();
     for haystack in haystacks {
-        results.push(
-            needle
-                .chunks(CHUNK_SIZE)
-                .map(|chunk| {
-                    for hi in 0..haystack.data.len() - (CHUNK_SIZE - 1) {
-                        if &haystack.data[hi..hi + CHUNK_SIZE] == chunk {
-                            return hi + 1;
-                        }
+        let mut chunks = Vec::new();
+        'next_chunk: for chunk in needle.chunks(CHUNK_SIZE) {
+            // check the chunk following the last chunk first
+            if let Some(&last) = chunks.last() {
+                if last != 0 {
+                    let hi = last - 1 + CHUNK_SIZE;
+                    if hi + CHUNK_SIZE < haystack.data.len() - 1 &&
+                        (&haystack.data[hi..hi + CHUNK_SIZE] == chunk)
+                    {
+                        chunks.push(hi + 1);
+                        continue 'next_chunk;
                     }
-                    return 0;
-                })
-                .collect(),
-        )
+                }
+            }
+            // fallback to lockup via convolution
+            for hi in 0..haystack.data.len() - (CHUNK_SIZE - 1) {
+                if &haystack.data[hi..hi + CHUNK_SIZE] == chunk {
+                    chunks.push(hi + 1);
+                    continue 'next_chunk;
+                }
+            }
+            chunks.push(0);
+        }
+        results.push(chunks);
     }
     return results;
 }
+
 
 #[derive(Debug, PartialEq)]
 enum BlockType {
@@ -121,7 +136,6 @@ enum BlockType {
     Original,
 }
 
-#[derive(Debug)]
 struct Block {
     block_type: BlockType,
     needle_off: usize,
@@ -129,22 +143,45 @@ struct Block {
     len: usize,
 }
 
+impl fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:?}({}-{}){}",
+            self.block_type,
+            self.needle_off,
+            self.needle_off + self.len,
+            if self.block_type == BlockType::Delta {
+                format!("@{}", self.offset)
+            } else {
+                "".to_string()
+            }
+        )
+    }
+}
+
+impl fmt::Debug for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (self as &fmt::Display).fmt(f)
+    }
+}
+
 impl Block {
-    fn fit(&mut self, needle: &[u8], haystack: &Vec<u8>) {
+    fn fit(&mut self, needle: &[u8], haystack: &Vec<u8>, left_bound: usize, right_bound: usize) {
         if self.block_type != BlockType::Delta {
             return;
         }
         let mut bi = 1;
         let mut od = 0;
         let mut fi = self.len;
-        while self.needle_off > bi && self.offset > bi &&
+        while self.needle_off > bi + left_bound && self.offset > bi &&
             needle[self.needle_off - bi] == haystack[self.offset - bi]
         {
             od += 1;
             self.len += 1;
             bi += 1;
         }
-        while (self.needle_off + fi) < needle.len() && (self.offset + fi) < haystack.len() &&
+        while (self.needle_off + fi) < right_bound && (self.offset + fi) < haystack.len() &&
             needle[self.needle_off + fi] == haystack[self.offset + fi]
         {
             self.len += 1;
@@ -175,7 +212,7 @@ impl Block {
 
 
 fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<Block> {
-    let mut blocks = Vec::new();
+    let mut blocks: Vec<Block> = Vec::new();
     let mut ri = 0;
     while ri < result.len() {
         if result[ri] != 0 {
@@ -192,23 +229,31 @@ fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<
                 offset: offset,
                 len: len,
             };
-            block.fit(needle, haystack);
+            //eprintln!("Before fit {}", block);
+            block.fit(
+                needle,
+                haystack,
+                blocks
+                    .last()
+                    .map(|last| last.needle_off + last.len)
+                    .unwrap_or(0),
+                if (ri * CHUNK_SIZE) < needle.len() {
+                    ri * CHUNK_SIZE
+                } else {
+                    needle.len()
+                },
+            );
+            //eprintln!("After fit {}", block);
             blocks.push(block);
         } else {
-            let block = if let Some(last_block) = blocks.last() {
-                Block {
-                    block_type: BlockType::Original,
-                    needle_off: last_block.needle_off + last_block.len,
-                    offset: 0,
-                    len: 0,
-                }
-            } else {
-                Block {
-                    block_type: BlockType::Original,
-                    needle_off: 0,
-                    offset: 0,
-                    len: 0,
-                }
+            let block = Block {
+                block_type: BlockType::Original,
+                needle_off: blocks
+                    .last()
+                    .map(|last| last.needle_off + last.len)
+                    .unwrap_or(0),
+                offset: 0,
+                len: 0,
             };
             blocks.push(block);
             while ri < result.len() && result[ri] == 0 {
@@ -218,8 +263,16 @@ fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<
     }
     for i in 0..blocks.len() - 1 {
         if blocks[i].block_type == BlockType::Original {
+            debug_assert!(
+                blocks[i + 1].needle_off >= blocks[i].needle_off,
+                "there is overlap"
+            );
             blocks[i].len = blocks[i + 1].needle_off - blocks[i].needle_off;
         }
+        debug_assert!(
+            blocks[i].needle_off + blocks[i].len <= blocks[i + 1].needle_off,
+            "there is overlap"
+        );
     }
     //println!("blocks {:?}", blocks);
     if let Some(ref mut last_block) = blocks.last_mut() {
