@@ -1,14 +1,18 @@
 extern crate dssc;
 extern crate byteorder;
+extern crate clap;
 
 use dssc::{DSSCDecoder, DSSCEncoder};
 use dssc::chunked::ChunkedCompressor;
 use dssc::varint::{put_uvarint, read_uvarint};
 use std::env;
 use std::io::{stdin, stdout, Read, Write, Error};
+use clap::{Arg, App};
 
-fn encode() -> Result<(), Error> {
-    let mut encoder = DSSCEncoder::new(&ChunkedCompressor {});
+const DEFAULT_THRESHOLD: f32 = 0.5;
+
+fn encode(threshold: f32) -> Result<(), Error> {
+    let mut encoder = DSSCEncoder::new(&ChunkedCompressor {}, threshold);
     let mut len_buf = [0; 10];
     loop {
         let mut input = String::new();
@@ -23,8 +27,8 @@ fn encode() -> Result<(), Error> {
     }
 }
 
-fn decode() -> Result<(), Error> {
-    let mut decoder = DSSCDecoder::new(&ChunkedCompressor {});
+fn decode(threshold: f32) -> Result<(), Error> {
+    let mut decoder = DSSCDecoder::new(&ChunkedCompressor {}, threshold);
     loop {
         let mut buf = Vec::new();
         let len = read_uvarint(&mut stdin())?;
@@ -37,16 +41,44 @@ fn decode() -> Result<(), Error> {
 }
 
 fn main() {
-    if let Some(d) = env::args().nth(1) {
-        if d != "-d".to_string() {
-            eprintln!("Usage: linedssc [-d] (d means decompress)");
-            return;
-        }
-        if let Err(error) = decode() {
+    let matches = App::new("Linefed Discreete Stream Compressor")
+        .version("0.0")
+        .author("Denis Lavrov <bahus.vel@gmail.com>")
+        .about("Compresses stream of lines")
+        .arg(
+            Arg::with_name("threshold")
+                .short("t")
+                .long("threshold")
+                .help("Sets insert threshold for history cache")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("decompress")
+                .short("d")
+                .long("decompress")
+                .help("Switches linedssc into decompress mode"),
+        )
+        .get_matches();
+
+    if matches.is_present("decompress") {
+        if let Err(error) = decode(
+            matches
+                .value_of("threshold")
+                .map(|t| t.parse().expect("Incorrect format for threshold"))
+                .unwrap_or(DEFAULT_THRESHOLD),
+        )
+        {
             eprintln!("error: {}", error);
         }
+        return;
     }
-    if let Err(error) = encode() {
+    if let Err(error) = encode(
+        matches
+            .value_of("threshold")
+            .map(|t| t.parse().expect("Incorrect format for threshold"))
+            .unwrap_or(DEFAULT_THRESHOLD),
+    )
+    {
         eprintln!("error: {}", error);
     }
 }

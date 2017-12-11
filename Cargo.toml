@@ -13,3 +13,4 @@ path = "src/linedssc/main.rs"
 
 [dependencies]
 byteorder = "1.1.0"
+clap = "2.29.0"

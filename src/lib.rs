@@ -7,11 +7,10 @@ pub mod convolve;
 
 use self::cache::{VecCache, DSSCache};
 
-const INSERT_THRESHOLD: f32 = 0.5;
-
 pub struct DSSCEncoder<'a> {
     cache: VecCache,
     comp: &'a Compressor,
+    insert_threshold: f32,
 }
 
 pub trait Compressor {
@@ -20,10 +19,11 @@ pub trait Compressor {
 }
 
 impl<'a> DSSCEncoder<'a> {
-    pub fn new(comp: &'a Compressor) -> DSSCEncoder {
+    pub fn new(comp: &'a Compressor, insert_threshold: f32) -> DSSCEncoder {
         DSSCEncoder {
             cache: Vec::new(),
             comp: comp,
+            insert_threshold: insert_threshold,
         }
     }
 
@@ -42,7 +42,7 @@ impl<'a> DSSCEncoder<'a> {
             cr,
             hit_index,
         );
-        if cr > INSERT_THRESHOLD {
+        if cr > self.insert_threshold {
             self.cache.cache_insert(&buf);
         }
 
@@ -53,13 +53,15 @@ impl<'a> DSSCEncoder<'a> {
 pub struct DSSCDecoder<'a> {
     cache: VecCache,
     comp: &'a Compressor,
+    insert_threshold: f32,
 }
 
 impl<'a> DSSCDecoder<'a> {
-    pub fn new(comp: &'a Compressor) -> DSSCDecoder {
+    pub fn new(comp: &'a Compressor, insert_threshold: f32) -> DSSCDecoder {
         DSSCDecoder {
             cache: Vec::new(),
             comp: comp,
+            insert_threshold: insert_threshold,
         }
     }
 
@@ -71,7 +73,7 @@ impl<'a> DSSCDecoder<'a> {
             self.cache[hit_index].hits += 1;
         }
         let cr = buf.len() as f32 / out_buf.len() as f32;
-        if cr > INSERT_THRESHOLD {
+        if cr > self.insert_threshold {
             self.cache.cache_insert(&out_buf);
         }
 
