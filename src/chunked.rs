@@ -7,7 +7,7 @@ const CHUNK_SIZE: usize = 4;
 pub struct ChunkedCompressor {}
 
 impl Compressor for ChunkedCompressor {
-    fn compress(&self, needle: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+    fn compress(&mut self, needle: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
         use std::str::from_utf8;
         eprintln!{"{:?}", from_utf8(needle)};
         if cache.len() == 0 {
@@ -52,7 +52,7 @@ impl Compressor for ChunkedCompressor {
         max_block.1
     }
 
-    fn decompress(&self, buf: &[u8], out_buf: &mut Vec<u8>, haystacks: &VecCache) -> usize {
+    fn decompress(&mut self, buf: &[u8], out_buf: &mut Vec<u8>, haystacks: &VecCache) -> usize {
         let hi = buf[0] as usize;
         let mut bi = 1;
         if haystacks.len() == 0 {

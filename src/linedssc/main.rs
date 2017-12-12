@@ -4,6 +4,7 @@ extern crate clap;
 
 use dssc::{DSSCDecoder, DSSCEncoder};
 use dssc::chunked::ChunkedCompressor;
+use dssc::flate::FlateCompressor;
 use dssc::varint::{put_uvarint, read_uvarint};
 use std::env;
 use std::io::{stdin, stdout, Read, Write, Error};
@@ -12,7 +13,8 @@ use clap::{Arg, App};
 const DEFAULT_THRESHOLD: f32 = 0.5;
 
 fn encode(threshold: f32) -> Result<(), Error> {
-    let mut encoder = DSSCEncoder::new(&ChunkedCompressor {}, threshold);
+    let mut comp = FlateCompressor::new();
+    let mut encoder = DSSCEncoder::new(&mut comp, threshold);
     let mut len_buf = [0; 10];
     loop {
         let mut input = String::new();
@@ -28,7 +30,8 @@ fn encode(threshold: f32) -> Result<(), Error> {
 }
 
 fn decode(threshold: f32) -> Result<(), Error> {
-    let mut decoder = DSSCDecoder::new(&ChunkedCompressor {}, threshold);
+    let mut comp = FlateCompressor::new();
+    let mut decoder = DSSCDecoder::new(&mut comp, threshold);
     loop {
         let mut buf = Vec::new();
         let len = read_uvarint(&mut stdin())?;

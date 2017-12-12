@@ -4,22 +4,23 @@ pub mod varint;
 mod cache;
 pub mod chunked;
 pub mod convolve;
+pub mod flate;
 
 use self::cache::{VecCache, DSSCache};
 
 pub struct DSSCEncoder<'a> {
     cache: VecCache,
-    comp: &'a Compressor,
+    comp: &'a mut Compressor,
     insert_threshold: f32,
 }
 
 pub trait Compressor {
-    fn compress(&self, in_buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize;
-    fn decompress(&self, in_buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize;
+    fn compress(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize;
+    fn decompress(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize;
 }
 
 impl<'a> DSSCEncoder<'a> {
-    pub fn new(comp: &'a Compressor, insert_threshold: f32) -> DSSCEncoder {
+    pub fn new(comp: &'a mut Compressor, insert_threshold: f32) -> DSSCEncoder {
         DSSCEncoder {
             cache: Vec::new(),
             comp: comp,
@@ -52,12 +53,12 @@ impl<'a> DSSCEncoder<'a> {
 
 pub struct DSSCDecoder<'a> {
     cache: VecCache,
-    comp: &'a Compressor,
+    comp: &'a mut Compressor,
     insert_threshold: f32,
 }
 
 impl<'a> DSSCDecoder<'a> {
-    pub fn new(comp: &'a Compressor, insert_threshold: f32) -> DSSCDecoder {
+    pub fn new(comp: &'a mut Compressor, insert_threshold: f32) -> DSSCDecoder {
         DSSCDecoder {
             cache: Vec::new(),
             comp: comp,

@@ -4,7 +4,7 @@ use super::varint::{put_uvarint, uvarint};
 pub struct ConvolveCompressor {}
 
 impl Compressor for ConvolveCompressor {
-    fn compress(&self, buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+    fn compress(&mut self, buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
         let mut best = (0, (0, 0));
         let delta = if cache.len() != 0 {
             for entry in 0..cache.len() {
@@ -27,7 +27,7 @@ impl Compressor for ConvolveCompressor {
         zrle(&delta, out_buf);
         best.0
     }
-    fn decompress(&self, buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+    fn decompress(&mut self, buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
         let (offset, offset_len) = uvarint(&buf[1..]);
         if offset_len <= 0 {
             panic!("Offset is wrong")
