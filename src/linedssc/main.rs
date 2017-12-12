@@ -2,19 +2,20 @@ extern crate dssc;
 extern crate byteorder;
 extern crate clap;
 
-use dssc::{DSSCDecoder, DSSCEncoder};
+use dssc::{DSSCDecoder, DSSCEncoder, Compressor};
 use dssc::chunked::ChunkedCompressor;
+use dssc::convolve::ConvolveCompressor;
 use dssc::flate::FlateCompressor;
 use dssc::varint::{put_uvarint, read_uvarint};
 use std::env;
+use std::ops::DerefMut;
 use std::io::{stdin, stdout, Read, Write, Error};
 use clap::{Arg, App};
 
 const DEFAULT_THRESHOLD: f32 = 0.5;
 
-fn encode(threshold: f32) -> Result<(), Error> {
-    let mut comp = FlateCompressor::new();
-    let mut encoder = DSSCEncoder::new(&mut comp, threshold);
+fn encode(threshold: f32, comp: &mut Compressor) -> Result<(), Error> {
+    let mut encoder = DSSCEncoder::new(comp, threshold);
     let mut len_buf = [0; 10];
     loop {
         let mut input = String::new();
@@ -29,9 +30,8 @@ fn encode(threshold: f32) -> Result<(), Error> {
     }
 }
 
-fn decode(threshold: f32) -> Result<(), Error> {
-    let mut comp = FlateCompressor::new();
-    let mut decoder = DSSCDecoder::new(&mut comp, threshold);
+fn decode(threshold: f32, comp: &mut Compressor) -> Result<(), Error> {
+    let mut decoder = DSSCDecoder::new(comp, threshold);
     loop {
         let mut buf = Vec::new();
         let len = read_uvarint(&mut stdin())?;
@@ -61,27 +61,36 @@ fn main() {
                 .long("decompress")
                 .help("Switches linedssc into decompress mode"),
         )
+        .arg(
+            Arg::with_name("algorithm")
+                .short("a")
+                .long("algorithm")
+                .possible_values(&["convolve", "chunked", "flate"])
+                .default_value("chunked")
+                .help("Switches linedssc to use a different algorithm")
+                .takes_value(true),
+        )
         .get_matches();
 
+    let mut comp: Box<Compressor> = match matches.value_of("algorithm") {
+        Some("convolve") => Box::new(ConvolveCompressor {}),
+        Some("chunked") => Box::new(ChunkedCompressor {}),
+        Some("flate") => Box::new(FlateCompressor::new()),
+        Some(_) | None => panic!("Cannot be none"),
+    };
+
+    let threshold = matches
+        .value_of("threshold")
+        .map(|t| t.parse().expect("Incorrect format for threshold"))
+        .unwrap_or(DEFAULT_THRESHOLD);
+
     if matches.is_present("decompress") {
-        if let Err(error) = decode(
-            matches
-                .value_of("threshold")
-                .map(|t| t.parse().expect("Incorrect format for threshold"))
-                .unwrap_or(DEFAULT_THRESHOLD),
-        )
-        {
+        if let Err(error) = decode(threshold, comp.deref_mut()) {
             eprintln!("error: {}", error);
         }
         return;
     }
-    if let Err(error) = encode(
-        matches
-            .value_of("threshold")
-            .map(|t| t.parse().expect("Incorrect format for threshold"))
-            .unwrap_or(DEFAULT_THRESHOLD),
-    )
-    {
+    if let Err(error) = encode(threshold, comp.deref_mut()) {
         eprintln!("error: {}", error);
     }
 }

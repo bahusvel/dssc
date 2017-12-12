@@ -3,7 +3,6 @@ extern crate flate2;
 use std::io::Write;
 
 use super::{Compressor, VecCache};
-use super::varint::{put_uvarint, uvarint};
 use self::flate2::write::{DeflateEncoder, DeflateDecoder};
 use self::flate2::Compression;
 
