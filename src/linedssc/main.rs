@@ -2,7 +2,7 @@ extern crate dssc;
 extern crate byteorder;
 extern crate clap;
 
-use dssc::{DSSCDecoder, DSSCEncoder, Compressor};
+use dssc::Compressor;
 use dssc::chunked::ChunkedCompressor;
 use dssc::convolve::ConvolveCompressor;
 use dssc::flate::FlateCompressor;
@@ -14,8 +14,7 @@ use clap::{Arg, App};
 
 const DEFAULT_THRESHOLD: f32 = 0.5;
 
-fn encode(threshold: f32, comp: &mut Compressor) -> Result<(), Error> {
-    let mut encoder = DSSCEncoder::new(comp, threshold);
+fn encode(comp: &mut Compressor) -> Result<(), Error> {
     let mut len_buf = [0; 10];
     loop {
         let mut input = String::new();
@@ -23,15 +22,14 @@ fn encode(threshold: f32, comp: &mut Compressor) -> Result<(), Error> {
         if n == 0 {
             return Ok(());
         }
-        let encoded = encoder.encode(input.as_bytes());
+        let encoded = comp.encode(input.as_bytes());
         let len_len = put_uvarint(&mut len_buf, encoded.len() as u64);
         stdout().write(&len_buf[0..len_len])?;
         stdout().write(&encoded)?;
     }
 }
 
-fn decode(threshold: f32, comp: &mut Compressor) -> Result<(), Error> {
-    let mut decoder = DSSCDecoder::new(comp, threshold);
+fn decode(comp: &mut Compressor) -> Result<(), Error> {
     loop {
         let mut buf = Vec::new();
         let len = read_uvarint(&mut stdin())?;
@@ -39,12 +37,12 @@ fn decode(threshold: f32, comp: &mut Compressor) -> Result<(), Error> {
         if n == 0 {
             return Ok(());
         }
-        stdout().write_all(&decoder.decode(&buf))?;
+        stdout().write_all(&comp.decode(&buf))?;
     }
 }
 
 fn main() {
-    let matches = App::new("Linefed Discreete Stream Compressor")
+    let matches = App::new("Linefed Discrete Stream Compressor")
         .version("0.0")
         .author("Denis Lavrov <bahus.vel@gmail.com>")
         .about("Compresses stream of lines")
@@ -72,25 +70,26 @@ fn main() {
         )
         .get_matches();
 
-    let mut comp: Box<Compressor> = match matches.value_of("algorithm") {
-        Some("convolve") => Box::new(ConvolveCompressor {}),
-        Some("chunked") => Box::new(ChunkedCompressor {}),
-        Some("flate") => Box::new(FlateCompressor::new()),
-        Some(_) | None => panic!("Cannot be none"),
-    };
-
     let threshold = matches
         .value_of("threshold")
         .map(|t| t.parse().expect("Incorrect format for threshold"))
         .unwrap_or(DEFAULT_THRESHOLD);
 
+    let mut comp: Box<Compressor> = match matches.value_of("algorithm") {
+        Some("convolve") => Box::new(ConvolveCompressor::new(threshold)),
+        Some("chunked") => Box::new(ChunkedCompressor::new(threshold)),
+        Some("flate") => Box::new(FlateCompressor::default()),
+        Some(_) | None => panic!("Cannot be none"),
+    };
+
+
     if matches.is_present("decompress") {
-        if let Err(error) = decode(threshold, comp.deref_mut()) {
+        if let Err(error) = decode(comp.deref_mut()) {
             eprintln!("error: {}", error);
         }
-        return;
-    }
-    if let Err(error) = encode(threshold, comp.deref_mut()) {
-        eprintln!("error: {}", error);
+    } else {
+        if let Err(error) = encode(comp.deref_mut()) {
+            eprintln!("error: {}", error);
+        }
     }
 }

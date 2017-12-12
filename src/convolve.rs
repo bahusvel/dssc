@@ -1,46 +1,102 @@
-use super::{Compressor, VecCache};
+use super::Compressor;
+use super::cache::{VecCache, DSSCache};
 use super::varint::{put_uvarint, uvarint};
 
-pub struct ConvolveCompressor {}
+pub struct ConvolveCompressor {
+    cache: VecCache,
+    insert_threshold: f32,
+}
+
+fn compress(buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+    let mut best = (0, (0, 0));
+    let delta = if cache.len() != 0 {
+        for entry in 0..cache.len() {
+            let cres = convolve(&buf, &cache[entry].data);
+            if cres.1 > (best.1).1 {
+                best = (entry, cres)
+            }
+        }
+        delta(&buf, &cache[best.0].data, (best.1).0)
+    } else {
+        buf.to_vec()
+    };
+
+    out_buf.push(best.0 as u8);
+
+    let mut offset_buf = [0; 10];
+    let offset_len = put_uvarint(&mut offset_buf, (best.1).0 as u64);
+    out_buf.extend_from_slice(&offset_buf[0..offset_len]);
+
+    zrle(&delta, out_buf);
+    best.0
+}
+fn decompress(buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+    let (offset, offset_len) = uvarint(&buf[1..]);
+    if offset_len <= 0 {
+        panic!("Offset is wrong")
+    }
+    let mut delta = zrld(&buf[1 + offset_len as usize..]);
+    if cache.len() == 0 {
+        out_buf.append(&mut delta);
+        return 0;
+    }
+    undelta(&mut delta, &cache[buf[0] as usize].data, offset as usize);
+
+    out_buf.append(&mut delta);
+    return buf[0] as usize;
+}
+
+impl ConvolveCompressor {
+    pub fn new(insert_threshold: f32) -> Self {
+        ConvolveCompressor {
+            cache: Vec::new(),
+            insert_threshold: insert_threshold,
+        }
+    }
+}
+
+impl Default for ConvolveCompressor {
+    fn default() -> Self {
+        ConvolveCompressor::new(0.5)
+    }
+}
 
 impl Compressor for ConvolveCompressor {
-    fn compress(&mut self, buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
-        let mut best = (0, (0, 0));
-        let delta = if cache.len() != 0 {
-            for entry in 0..cache.len() {
-                let cres = convolve(&buf, &cache[entry].data);
-                if cres.1 > (best.1).1 {
-                    best = (entry, cres)
-                }
-            }
-            delta(&buf, &cache[best.0].data, (best.1).0)
-        } else {
-            buf.to_vec()
-        };
+    fn encode(&mut self, buf: &[u8]) -> Vec<u8> {
+        let mut out_buf = Vec::new();
+        let hit_index = compress(buf, &mut out_buf, &self.cache);
 
-        out_buf.push(best.0 as u8);
+        if self.cache.len() != 0 {
+            self.cache[hit_index].hits += 1;
+        }
+        let cr = out_buf.len() as f32 / buf.len() as f32;
+        eprintln!(
+            "cr {}/{}={} cache entry {}",
+            out_buf.len(),
+            buf.len(),
+            cr,
+            hit_index,
+        );
+        if cr > self.insert_threshold {
+            self.cache.cache_insert(&buf);
+        }
 
-        let mut offset_buf = [0; 10];
-        let offset_len = put_uvarint(&mut offset_buf, (best.1).0 as u64);
-        out_buf.extend_from_slice(&offset_buf[0..offset_len]);
-
-        zrle(&delta, out_buf);
-        best.0
+        out_buf
     }
-    fn decompress(&mut self, buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
-        let (offset, offset_len) = uvarint(&buf[1..]);
-        if offset_len <= 0 {
-            panic!("Offset is wrong")
-        }
-        let mut delta = zrld(&buf[1 + offset_len as usize..]);
-        if cache.len() == 0 {
-            out_buf.append(&mut delta);
-            return 0;
-        }
-        undelta(&mut delta, &cache[buf[0] as usize].data, offset as usize);
 
-        out_buf.append(&mut delta);
-        return buf[0] as usize;
+    fn decode(&mut self, buf: &[u8]) -> Vec<u8> {
+        let mut out_buf = Vec::new();
+        let hit_index = decompress(buf, &mut out_buf, &self.cache);
+
+        if self.cache.len() != 0 {
+            self.cache[hit_index].hits += 1;
+        }
+        let cr = buf.len() as f32 / out_buf.len() as f32;
+        if cr > self.insert_threshold {
+            self.cache.cache_insert(&out_buf);
+        }
+
+        out_buf
     }
 }
 

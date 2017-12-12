@@ -1,61 +1,76 @@
 use super::varint::{put_uvarint, uvarint};
-use super::{Compressor, VecCache};
+use super::Compressor;
+use super::cache::{VecCache, DSSCache};
 use std::fmt;
 
 const CHUNK_SIZE: usize = 4;
 
-pub struct ChunkedCompressor {}
+pub struct ChunkedCompressor {
+    cache: VecCache,
+    insert_threshold: f32,
+}
 
-impl Compressor for ChunkedCompressor {
-    fn compress(&mut self, needle: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
-        use std::str::from_utf8;
-        eprintln!{"{:?}", from_utf8(needle)};
-        if cache.len() == 0 {
-            out_buf.push(0);
-            Block {
-                block_type: BlockType::Original,
-                offset: 0,
-                needle_off: 0,
-                len: needle.len(),
-            }.encode(needle, out_buf);
-            return 0;
-        }
-        let matches = chunk_match(needle, &cache);
-        //eprintln!("matches {:?}", matches);
-        let max: usize = matches
-            .iter()
-            .map(|m| m.iter().filter(|&&o| o != 0).count())
-            .max()
-            .expect("haystacks are empty");
-        let mut max_block = (0, 0, None);
-        for (hi, result) in matches.iter().enumerate() {
-            if result.iter().filter(|&&o| o != 0).count() != max {
-                continue;
-            }
-            let blocks = expand_blocks(needle, &cache[hi].data, result);
-            let score = blocks
-                .iter()
-                .filter(|b| b.block_type == BlockType::Delta)
-                .map(|b| b.len)
-                .sum();
-            if max_block.0 <= score {
-                max_block = (score, hi, Some(blocks))
-            }
-        }
-        eprintln!("{:?}", max_block.2);
-        out_buf.push(max_block.1 as u8);
-        for block in max_block.2.expect("No candidate was found") {
-            block.encode(needle, out_buf);
-        }
-        //eprintln!("{:?} needle", needle);
-        //eprintln!("{:?} output", out_buf);
-        max_block.1
+fn compress(needle: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+    use std::str::from_utf8;
+    eprintln!{"{:?}", from_utf8(needle)};
+    if cache.len() == 0 {
+        out_buf.push(0);
+        Block {
+            block_type: BlockType::Original,
+            offset: 0,
+            needle_off: 0,
+            len: needle.len(),
+        }.encode(needle, out_buf);
+        return 0;
     }
+    let matches = chunk_match(needle, &cache);
+    //eprintln!("matches {:?}", matches);
+    let max: usize = matches
+        .iter()
+        .map(|m| m.iter().filter(|&&o| o != 0).count())
+        .max()
+        .expect("haystacks are empty");
+    let mut max_block = (0, 0, None);
+    for (hi, result) in matches.iter().enumerate() {
+        if result.iter().filter(|&&o| o != 0).count() != max {
+            continue;
+        }
+        let blocks = expand_blocks(needle, &cache[hi].data, result);
+        let score = blocks
+            .iter()
+            .filter(|b| b.block_type == BlockType::Delta)
+            .map(|b| b.len)
+            .sum();
+        if max_block.0 <= score {
+            max_block = (score, hi, Some(blocks))
+        }
+    }
+    eprintln!("{:?}", max_block.2);
+    out_buf.push(max_block.1 as u8);
+    for block in max_block.2.expect("No candidate was found") {
+        block.encode(needle, out_buf);
+    }
+    //eprintln!("{:?} needle", needle);
+    //eprintln!("{:?} output", out_buf);
+    max_block.1
+}
 
-    fn decompress(&mut self, buf: &[u8], out_buf: &mut Vec<u8>, haystacks: &VecCache) -> usize {
-        let hi = buf[0] as usize;
-        let mut bi = 1;
-        if haystacks.len() == 0 {
+fn decompress(buf: &[u8], out_buf: &mut Vec<u8>, haystacks: &VecCache) -> usize {
+    let hi = buf[0] as usize;
+    let mut bi = 1;
+    if haystacks.len() == 0 {
+        bi += 1;
+        let (len, len_len) = uvarint(&buf[bi..]);
+        if len_len <= 0 {
+            panic!("Something is wrong with length varint");
+        }
+        bi += len_len as usize;
+        out_buf.extend_from_slice(&buf[bi..bi + len as usize]);
+        return 0;
+    }
+    while bi < buf.len() {
+        if buf[bi] == 0 {
+            //original
             bi += 1;
             let (len, len_len) = uvarint(&buf[bi..]);
             if len_len <= 0 {
@@ -63,37 +78,77 @@ impl Compressor for ChunkedCompressor {
             }
             bi += len_len as usize;
             out_buf.extend_from_slice(&buf[bi..bi + len as usize]);
-            return 0;
-        }
-        while bi < buf.len() {
-            if buf[bi] == 0 {
-                //original
-                bi += 1;
-                let (len, len_len) = uvarint(&buf[bi..]);
-                if len_len <= 0 {
-                    panic!("Something is wrong with length varint");
-                }
-                bi += len_len as usize;
-                out_buf.extend_from_slice(&buf[bi..bi + len as usize]);
-                bi += len as usize;
-            } else {
-                let (mut offset, offset_len) = uvarint(&buf[bi..]);
-                if offset_len <= 0 {
-                    panic!("Something is wrong with offset varint");
-                }
-                offset -= 1;
-                bi += offset_len as usize;
-                let (len, len_len) = uvarint(&buf[bi..]);
-                if len_len <= 0 {
-                    panic!("Something is wrong with length varint");
-                }
-                bi += len_len as usize;
-                out_buf.extend_from_slice(
-                    &haystacks[hi].data[offset as usize..offset as usize + len as usize],
-                );
+            bi += len as usize;
+        } else {
+            let (mut offset, offset_len) = uvarint(&buf[bi..]);
+            if offset_len <= 0 {
+                panic!("Something is wrong with offset varint");
             }
+            offset -= 1;
+            bi += offset_len as usize;
+            let (len, len_len) = uvarint(&buf[bi..]);
+            if len_len <= 0 {
+                panic!("Something is wrong with length varint");
+            }
+            bi += len_len as usize;
+            out_buf.extend_from_slice(
+                &haystacks[hi].data[offset as usize..offset as usize + len as usize],
+            );
         }
-        hi
+    }
+    hi
+}
+
+impl ChunkedCompressor {
+    pub fn new(insert_threshold: f32) -> Self {
+        ChunkedCompressor {
+            cache: Vec::new(),
+            insert_threshold: insert_threshold,
+        }
+    }
+}
+
+impl Default for ChunkedCompressor {
+    fn default() -> Self {
+        ChunkedCompressor::new(0.5)
+    }
+}
+
+impl Compressor for ChunkedCompressor {
+    fn encode(&mut self, buf: &[u8]) -> Vec<u8> {
+        let mut out_buf = Vec::new();
+        let hit_index = compress(buf, &mut out_buf, &self.cache);
+
+        if self.cache.len() != 0 {
+            self.cache[hit_index].hits += 1;
+        }
+        let cr = out_buf.len() as f32 / buf.len() as f32;
+        eprintln!(
+        "cr {}/{}={} cache entry {}",
+        out_buf.len(),
+        buf.len(),
+        cr,
+        hit_index,
+    );
+        if cr > self.insert_threshold {
+            self.cache.cache_insert(&buf);
+        }
+
+        out_buf
+    }
+    fn decode(&mut self, buf: &[u8]) -> Vec<u8> {
+        let mut out_buf = Vec::new();
+        let hit_index = decompress(buf, &mut out_buf, &self.cache);
+
+        if self.cache.len() != 0 {
+            self.cache[hit_index].hits += 1;
+        }
+        let cr = buf.len() as f32 / out_buf.len() as f32;
+        if cr > self.insert_threshold {
+            self.cache.cache_insert(&out_buf);
+        }
+
+        out_buf
     }
 }
 

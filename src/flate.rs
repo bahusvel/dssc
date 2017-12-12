@@ -2,7 +2,7 @@ extern crate flate2;
 
 use std::io::Write;
 
-use super::{Compressor, VecCache};
+use super::Compressor;
 use self::flate2::write::{DeflateEncoder, DeflateDecoder};
 use self::flate2::Compression;
 
@@ -11,8 +11,8 @@ pub struct FlateCompressor {
     decoder: DeflateDecoder<Vec<u8>>,
 }
 
-impl FlateCompressor {
-    pub fn new() -> Self {
+impl Default for FlateCompressor {
+    fn default() -> Self {
         FlateCompressor {
             encoder: DeflateEncoder::new(Vec::new(), Compression::best()),
             decoder: DeflateDecoder::new(Vec::new()),
@@ -21,16 +21,16 @@ impl FlateCompressor {
 }
 
 impl Compressor for FlateCompressor {
-    fn compress(&mut self, buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+    fn encode(&mut self, buf: &[u8]) -> Vec<u8> {
         self.encoder.write(&buf);
         self.encoder.flush();
-        out_buf.append(self.encoder.get_mut());
-        0
+        let len = self.encoder.get_mut().len();
+        self.encoder.get_mut().split_off(len)
     }
-    fn decompress(&mut self, buf: &[u8], out_buf: &mut Vec<u8>, cache: &VecCache) -> usize {
+    fn decode(&mut self, buf: &[u8]) -> Vec<u8> {
         self.decoder.write(&buf);
         self.decoder.flush();
-        out_buf.append(self.decoder.get_mut());
-        0
+        let len = self.encoder.get_mut().len();
+        self.encoder.get_mut().split_off(len)
     }
 }
