@@ -24,13 +24,15 @@ impl Compressor for FlateCompressor {
     fn encode(&mut self, buf: &[u8]) -> Vec<u8> {
         self.encoder.write(&buf);
         self.encoder.flush();
-        let len = self.encoder.get_mut().len();
-        self.encoder.get_mut().split_off(len)
+        let mut out = Vec::new();
+        out.append(self.encoder.get_mut());
+        out
     }
     fn decode(&mut self, buf: &[u8]) -> Vec<u8> {
         self.decoder.write(&buf);
         self.decoder.flush();
-        let len = self.encoder.get_mut().len();
-        self.encoder.get_mut().split_off(len)
+        let mut out = Vec::new();
+        out.append(self.decoder.get_mut());
+        out
     }
 }
