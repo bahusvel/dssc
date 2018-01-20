@@ -5,7 +5,7 @@ pub mod flate;
 mod cache;
 pub mod varint;
 
-pub trait Compressor {
+pub trait Compressor: Send {
     fn encode(&mut self, buf: &[u8]) -> Vec<u8>;
     fn decode(&mut self, buf: &[u8]) -> Vec<u8>;
 }
