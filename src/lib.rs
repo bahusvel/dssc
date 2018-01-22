@@ -1,8 +1,10 @@
 #![feature(iterator_step_by)]
+#![feature(conservative_impl_trait)]
 pub mod chunked;
 pub mod convolve;
 pub mod flate;
 mod cache;
+mod chunkmap;
 pub mod varint;
 
 pub trait Compressor: Send {
