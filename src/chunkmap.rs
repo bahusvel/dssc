@@ -1,9 +1,11 @@
 extern crate fnv;
 extern crate slab;
+extern crate bio;
 
 use self::fnv::FnvHashMap;
 use self::fnv::FnvHashSet;
 use self::slab::Slab;
+use self::bio::data_structures::interval_tree::IntervalTree;
 
 use std::collections::LinkedList;
 use std::mem::transmute;
@@ -28,21 +30,33 @@ impl Match {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub struct Chain {
     line: usize,
-    start_chunk: usize,
+    needle_offset: usize,
     line_offset: usize,
     length: usize,
 }
 
 impl Chain {
-    fn from_chunks(chunk: &Match, chunk_index: usize, c_length: usize) -> Self {
+    fn from_chunks(chunk: &Match, needle_offset: usize, c_length: usize) -> Self {
         Chain {
             line: chunk.line,
-            start_chunk: chunk_index,
+            needle_offset: needle_offset,
             line_offset: chunk.offset,
             length: c_length,
         }
+    }
+
+    fn find_interesctions<'a>(
+        &self,
+        itree: &'a IntervalTree<usize, Chain>,
+    ) -> impl Iterator<Item = &'a Chain> {
+        let self_clone = *self;
+        itree
+            .find(self.needle_offset..self.needle_offset + self.length)
+            .map(|c| c.data())
+            .filter(move |c| **c != self_clone)
     }
 }
 
@@ -100,6 +114,7 @@ impl ChunkMap {
         //let mut matches: Vec<Option<Match>> = Vec::new();
         let mut c_matches: Vec<FnvHashSet<Match>> = needle
             .chunks(4)
+            .filter(|c| c.len() == 4)
             .map(|chunk| {
                 self.map
                     .get(&slice_to_u32(chunk))
@@ -107,7 +122,11 @@ impl ChunkMap {
                     .unwrap_or(FnvHashSet::default())
             })
             .collect();
-        let mut chains = Vec::new();
+
+        println!("Chunks {:?}", c_matches);
+
+        let mut chains = IntervalTree::new();
+
         for i in 0..c_matches.len() - 1 {
             for m in c_matches[i].clone() {
                 let mut c_length = 1;
@@ -118,13 +137,46 @@ impl ChunkMap {
                     c_length += 1;
                 }
                 if c_length > 1 {
-                    chains.push(Chain::from_chunks(&m, i, c_length));
+                    chains.insert(
+                        (i * CHUNK_SIZE)..(i * CHUNK_SIZE + c_length * CHUNK_SIZE),
+                        Chain::from_chunks(&m, i * CHUNK_SIZE, c_length * CHUNK_SIZE),
+                    );
                 }
             }
         }
-        // pick which chains to use
+
+        println!("Chains {:?}", chains);
+
+        let mut use_chains = IntervalTree::new();
+
+        for c in chains.find(0..needle.len()) {
+            //let cc = c.clone();
+            let cc = c.data();
+            if cc.find_interesctions(&use_chains).count() != 0 {
+                continue;
+            }
+            let largest = cc.find_interesctions(&chains).max_by(
+                |a, b| a.length.cmp(&b.length),
+            );
+            if largest.is_none() || cc.length >= largest.unwrap().length {
+                use_chains.insert(c.interval().clone(), *cc)
+            }
+        }
+
+        println!("Using {:?}", use_chains);
+
         // fill remaining with matches
         // expand chains and matches
         // encode
     }
+}
+
+
+#[test]
+pub fn nchunk_test() {
+    let mut map = ChunkMap::new();
+    map.insert("Hello Denis Worlds".as_bytes().to_vec());
+    map.insert("Test Worlds".as_bytes().to_vec());
+    map.insert("Test Bananas".as_bytes().to_vec());
+    map.chunk_match("Hello Test Worlds".as_bytes());
 }
