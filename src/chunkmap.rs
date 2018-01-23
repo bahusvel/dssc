@@ -127,6 +127,8 @@ impl ChunkMap {
 
         let mut chains = IntervalTree::new();
 
+        // I should construct the chains differently, for each chunk, do chain search, find all chains. And pick the biggest chain. Then skip ahead that many chunks. And then continue.
+
         for i in 0..c_matches.len() - 1 {
             for m in c_matches[i].clone() {
                 let mut c_length = 1;
