@@ -120,15 +120,17 @@ impl Block {
                 line: line,
                 offset: offset,
             } => {
-                let offset_len = put_uvarint(&mut varint_buf, (offset + 1) as u64);
-                buf.extend_from_slice(&varint_buf[0..offset_len]);
-                let len_len = put_uvarint(&mut varint_buf, (self.len) as u64);
-                buf.extend_from_slice(&varint_buf[0..len_len]);
+                let varint_len = put_uvarint(&mut varint_buf, (line + 1) as u64);
+                buf.extend_from_slice(&varint_buf[0..varint_len]);
+                let varint_len = put_uvarint(&mut varint_buf, offset as u64);
+                buf.extend_from_slice(&varint_buf[0..varint_len]);
+                let varint_len = put_uvarint(&mut varint_buf, (self.len) as u64);
+                buf.extend_from_slice(&varint_buf[0..varint_len]);
             }
             BlockType::Original => {
                 buf.push(0 as u8);
-                let len_len = put_uvarint(&mut varint_buf, (self.len) as u64);
-                buf.extend_from_slice(&varint_buf[0..len_len]);
+                let varint_len = put_uvarint(&mut varint_buf, (self.len) as u64);
+                buf.extend_from_slice(&varint_buf[0..varint_len]);
                 buf.extend_from_slice(&needle[self.needle_off..self.needle_off + self.len])
             }
         }
@@ -185,7 +187,7 @@ impl ChunkMap {
         &self.entries[entry_index]
     }
 
-    fn chunk_match(&self, needle: &[u8]) {
+    fn encode(&self, needle: &[u8], buf: &mut Vec<u8>) {
         //let mut matches: Vec<Option<Match>> = Vec::new();
         let mut c_matches: Vec<FnvHashSet<Match>> = needle
             .chunks(4)
@@ -225,26 +227,47 @@ impl ChunkMap {
                 0
             } else {
                 let last = &chains[bi - 1];
-                last.needle_off + last.len
+                last.needle_off + last.len - 1
             };
 
             let rb = chains.get(bi + 1).map(|n| n.needle_off).unwrap_or(
                 needle.len(),
             );
             let block = &mut chains[bi];
-            if let BlockType::Delta {
-                line: line,
-                offset: _,
-            } = block.block_type
-            {
+            if let BlockType::Delta { line, offset: _ } = block.block_type {
                 block.fit(needle, &self.entries[line], lb, rb);
             }
         }
 
         println!("Fitted {:?}", chains);
 
-        // fill remaining with matches
-        // expand chains and matches
+        let mut last_end = 0;
+        let mut bi = 0;
+
+        while {
+            let next_off = chains.get(bi).map(|b| b.needle_off).unwrap_or(needle.len());
+            let b = Block {
+                block_type: BlockType::Original,
+                needle_off: last_end,
+                len: next_off - last_end,
+            };
+            let block = if b.len != 0 {
+                &b
+            } else {
+                bi += 1;
+                &chains[bi - 1]
+            };
+
+            println!("{:?}", block);
+
+            block.encode(needle, buf);
+            last_end = block.needle_off + block.len;
+
+            println!("{:?}", last_end);
+
+            bi < chains.len() || last_end < needle.len()
+        }
+        {}
         // encode
     }
 }
@@ -256,5 +279,9 @@ pub fn nchunk_test() {
     map.insert("Hello Denis Worlds".as_bytes().to_vec());
     map.insert("Test Worlds".as_bytes().to_vec());
     map.insert("Test Bananas".as_bytes().to_vec());
-    map.chunk_match("Hello Test Worlds".as_bytes());
+
+    let mut buf = Vec::new();
+    map.encode("Hello Test Worlds".as_bytes(), &mut buf);
+
+    println!("Finished {:?}", buf);
 }
