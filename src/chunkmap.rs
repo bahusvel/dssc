@@ -7,9 +7,12 @@ use self::fnv::FnvHashSet;
 use self::slab::Slab;
 use self::bio::data_structures::interval_tree::IntervalTree;
 
+use super::varint::{put_uvarint, uvarint};
+
 use std::collections::LinkedList;
 use std::mem::transmute;
 use std::iter;
+use std::fmt;
 
 const EDEN_SIZE: usize = 10;
 const CACHE_SIZE: usize = 255 - EDEN_SIZE;
@@ -28,35 +31,107 @@ impl Match {
             offset: self.offset + CHUNK_SIZE,
         }
     }
+    fn to_block(&self, needle_off: usize, len: usize) -> Block {
+        Block {
+            block_type: BlockType::Delta {
+                line: self.line,
+                offset: self.offset,
+            },
+            needle_off: needle_off,
+            len: len,
+        }
+    }
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
-pub struct Chain {
-    line: usize,
-    needle_offset: usize,
-    line_offset: usize,
-    length: usize,
+#[derive(Debug, PartialEq)]
+enum BlockType {
+    Delta { line: usize, offset: usize },
+    Original,
 }
 
-impl Chain {
-    fn from_chunks(chunk: &Match, needle_offset: usize, c_length: usize) -> Self {
-        Chain {
-            line: chunk.line,
-            needle_offset: needle_offset,
-            line_offset: chunk.offset,
-            length: c_length,
+struct Block {
+    block_type: BlockType,
+    needle_off: usize,
+    len: usize,
+}
+
+impl fmt::Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{:?}({}-{})",
+            self.block_type,
+            self.needle_off,
+            self.needle_off + self.len
+        )
+    }
+}
+
+impl fmt::Debug for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        (self as &fmt::Display).fmt(f)
+    }
+}
+
+impl Block {
+    fn fit(&mut self, needle: &[u8], haystack: &Vec<u8>, left_bound: usize, right_bound: usize) {
+        if self.block_type == BlockType::Original {
+            return;
+        }
+        let (line, offset) = if let BlockType::Delta {
+            line: l,
+            offset: off,
+        } = self.block_type
+        {
+
+            (l, off)
+        } else {
+            (0, 0)
+        };
+
+        let mut bi = 1;
+        let mut od = 0;
+        let mut fi = self.len;
+        while self.needle_off > bi + left_bound && offset > bi &&
+            needle[self.needle_off - bi] == haystack[offset - bi]
+        {
+            od += 1;
+            self.len += 1;
+            bi += 1;
+        }
+        while (self.needle_off + fi) < right_bound && (offset + fi) < haystack.len() &&
+            needle[self.needle_off + fi] == haystack[offset + fi]
+        {
+            self.len += 1;
+            fi += 1;
+        }
+        self.needle_off -= od;
+
+        self.block_type = BlockType::Delta {
+            line: line,
+            offset: offset - od,
         }
     }
 
-    fn find_interesctions<'a>(
-        &self,
-        itree: &'a IntervalTree<usize, Chain>,
-    ) -> impl Iterator<Item = &'a Chain> {
-        let self_clone = *self;
-        itree
-            .find(self.needle_offset..self.needle_offset + self.length)
-            .map(|c| c.data())
-            .filter(move |c| **c != self_clone)
+    fn encode(&self, needle: &[u8], buf: &mut Vec<u8>) {
+        let mut varint_buf = [0; 10];
+        match self.block_type {
+            BlockType::Delta {
+                line: line,
+                offset: offset,
+            } => {
+                let offset_len = put_uvarint(&mut varint_buf, (offset + 1) as u64);
+                buf.extend_from_slice(&varint_buf[0..offset_len]);
+                let len_len = put_uvarint(&mut varint_buf, (self.len) as u64);
+                buf.extend_from_slice(&varint_buf[0..len_len]);
+            }
+            BlockType::Original => {
+                buf.push(0 as u8);
+                let len_len = put_uvarint(&mut varint_buf, (self.len) as u64);
+                buf.extend_from_slice(&varint_buf[0..len_len]);
+                buf.extend_from_slice(&needle[self.needle_off..self.needle_off + self.len])
+            }
+        }
     }
 }
 
@@ -125,47 +200,48 @@ impl ChunkMap {
 
         println!("Chunks {:?}", c_matches);
 
-        let mut chains = IntervalTree::new();
-
-        // I should construct the chains differently, for each chunk, do chain search, find all chains. And pick the biggest chain. Then skip ahead that many chunks. And then continue.
-
-        for i in 0..c_matches.len() - 1 {
-            for m in c_matches[i].clone() {
-                let mut c_length = 1;
-                while i + c_length < c_matches.len() &&
-                    c_matches[i + c_length].contains(&m.next_nth_chunk(c_length))
-                {
-                    c_matches[i + c_length].remove(&m.next_nth_chunk(c_length));
-                    c_length += 1;
+        let mut chains = Vec::new();
+        let mut i = 0;
+        while i < c_matches.len() {
+            let mut c_chains = Vec::with_capacity(c_matches[i].len());
+            for m in &c_matches[i] {
+                let mut n = 1;
+                while i + n < c_matches.len() && c_matches[i + n].contains(&m.next_nth_chunk(n)) {
+                    n += 1;
                 }
-                if c_length > 1 {
-                    chains.insert(
-                        (i * CHUNK_SIZE)..(i * CHUNK_SIZE + c_length * CHUNK_SIZE),
-                        Chain::from_chunks(&m, i * CHUNK_SIZE, c_length * CHUNK_SIZE),
-                    );
-                }
+                c_chains.push(m.to_block(i * CHUNK_SIZE, n * CHUNK_SIZE));
+            }
+            if let Some(block) = c_chains.into_iter().max_by(|a, b| a.len.cmp(&b.len)) {
+                i += block.len / 4;
+                chains.push(block);
+            } else {
+                i += 1;
             }
         }
-
         println!("Chains {:?}", chains);
 
-        let mut use_chains = IntervalTree::new();
+        for bi in 0..chains.len() {
+            let lb = if bi == 0 {
+                0
+            } else {
+                let last = &chains[bi - 1];
+                last.needle_off + last.len
+            };
 
-        for c in chains.find(0..needle.len()) {
-            //let cc = c.clone();
-            let cc = c.data();
-            if cc.find_interesctions(&use_chains).count() != 0 {
-                continue;
-            }
-            let largest = cc.find_interesctions(&chains).max_by(
-                |a, b| a.length.cmp(&b.length),
+            let rb = chains.get(bi + 1).map(|n| n.needle_off).unwrap_or(
+                needle.len(),
             );
-            if largest.is_none() || cc.length >= largest.unwrap().length {
-                use_chains.insert(c.interval().clone(), *cc)
+            let block = &mut chains[bi];
+            if let BlockType::Delta {
+                line: line,
+                offset: _,
+            } = block.block_type
+            {
+                block.fit(needle, &self.entries[line], lb, rb);
             }
         }
 
-        println!("Using {:?}", use_chains);
+        println!("Fitted {:?}", chains);
 
         // fill remaining with matches
         // expand chains and matches
