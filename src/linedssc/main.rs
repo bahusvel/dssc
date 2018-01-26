@@ -7,7 +7,6 @@ use dssc::chunked::ChunkedCompressor;
 use dssc::chunkmap::ChunkMap;
 use dssc::flate::FlateCompressor;
 use dssc::varint::{put_uvarint, read_uvarint};
-use std::env;
 use std::ops::DerefMut;
 use std::io::{stdin, stdout, Read, Write, Error};
 use clap::{Arg, App};
@@ -22,7 +21,8 @@ fn encode(comp: &mut Compressor) -> Result<(), Error> {
         if n == 0 {
             return Ok(());
         }
-        let encoded = comp.encode(input.as_bytes());
+        let mut encoded = Vec::new();
+        comp.encode(input.as_bytes(), &mut encoded);
         let len_len = put_uvarint(&mut len_buf, encoded.len() as u64);
         stdout().write(&len_buf[0..len_len])?;
         stdout().write(&encoded)?;
@@ -37,7 +37,9 @@ fn decode(comp: &mut Compressor) -> Result<(), Error> {
         if n == 0 {
             return Ok(());
         }
-        stdout().write_all(&comp.decode(&buf))?;
+        let mut decoded = Vec::new();
+        comp.decode(&buf, &mut decoded);
+        stdout().write_all(&decoded)?;
     }
 }
 
@@ -63,8 +65,8 @@ fn main() {
             Arg::with_name("algorithm")
                 .short("a")
                 .long("algorithm")
-                .possible_values(&["convolve", "chunked", "flate"])
-                .default_value("chunked")
+                .possible_values(&["chunkmap", "chunked", "flate"])
+                .default_value("chunkmap")
                 .help("Switches linedssc to use a different algorithm")
                 .takes_value(true),
         )
@@ -76,7 +78,7 @@ fn main() {
         .unwrap_or(DEFAULT_THRESHOLD);
 
     let mut comp: Box<Compressor> = match matches.value_of("algorithm") {
-        Some("chunkmap") => Box::new(ChunkMap::new()),
+        Some("chunkmap") => Box::new(ChunkMap::new(threshold)),
         Some("chunked") => Box::new(ChunkedCompressor::new(threshold)),
         Some("flate") => Box::new(FlateCompressor::default()),
         Some(_) | None => panic!("Cannot be none"),

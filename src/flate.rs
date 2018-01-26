@@ -29,7 +29,6 @@ impl Compressor for FlateCompressor {
     fn decode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>) {
         self.decoder.write(&in_buf);
         self.decoder.flush();
-        let mut out = Vec::new();
-        out.append(self.decoder.get_mut());
+        out_buf.append(self.decoder.get_mut());
     }
 }
