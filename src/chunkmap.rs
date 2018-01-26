@@ -59,7 +59,7 @@ impl fmt::Display for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{:?}({}-{})",
+            "{:?}[{}-{})",
             self.block_type,
             self.needle_off,
             self.needle_off + self.len
@@ -90,26 +90,28 @@ impl Block {
         };
 
         let mut bi = 1;
-        let mut od = 0;
         let mut fi = self.len;
-        while self.needle_off > bi + left_bound && offset > bi &&
+
+        //backward search
+        while self.needle_off > bi + left_bound && offset >= bi &&
             needle[self.needle_off - bi] == haystack[offset - bi]
         {
-            od += 1;
-            self.len += 1;
             bi += 1;
         }
+        bi -= 1;
+
+        //forward search
         while (self.needle_off + fi) < right_bound && (offset + fi) < haystack.len() &&
             needle[self.needle_off + fi] == haystack[offset + fi]
         {
-            self.len += 1;
             fi += 1;
         }
-        self.needle_off -= od;
 
+        self.len += bi + (fi - self.len);
+        self.needle_off -= bi;
         self.block_type = BlockType::Delta {
             line: line,
-            offset: offset - od,
+            offset: offset - bi,
         }
     }
 
