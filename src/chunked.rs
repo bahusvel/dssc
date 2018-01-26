@@ -115,40 +115,40 @@ impl Default for ChunkedCompressor {
 }
 
 impl Compressor for ChunkedCompressor {
-    fn encode(&mut self, buf: &[u8]) -> Vec<u8> {
-        let mut out_buf = Vec::new();
-        let hit_index = compress(buf, &mut out_buf, &self.cache);
+    fn encode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>){
+        //let mut out_buf = Vec::new();
+        let old_buf_len = out_buf.len();
+        let hit_index = compress(in_buf, out_buf, &self.cache);
+        let clen = out_buf.len() - old_buf_len;
 
         if self.cache.len() != 0 {
             self.cache[hit_index].hits += 1;
         }
-        let cr = out_buf.len() as f32 / buf.len() as f32;
+
+        let cr = clen as f32 / in_buf.len() as f32;
         eprintln!(
         "cr {}/{}={} cache entry {}",
-        out_buf.len(),
-        buf.len(),
+        clen,
+        in_buf.len(),
         cr,
         hit_index,
     );
         if cr > self.insert_threshold {
-            self.cache.cache_insert(&buf);
+            self.cache.cache_insert(&in_buf);
         }
-
-        out_buf
     }
-    fn decode(&mut self, buf: &[u8]) -> Vec<u8> {
-        let mut out_buf = Vec::new();
-        let hit_index = decompress(buf, &mut out_buf, &self.cache);
+    fn decode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>){
+        let old_buf_len = out_buf.len();
+        let hit_index = decompress(in_buf, out_buf, &self.cache);
+        let dlen = out_buf.len() - old_buf_len;
 
         if self.cache.len() != 0 {
             self.cache[hit_index].hits += 1;
         }
-        let cr = buf.len() as f32 / out_buf.len() as f32;
+        let cr = in_buf.len() as f32 / dlen as f32;
         if cr > self.insert_threshold {
             self.cache.cache_insert(&out_buf);
         }
-
-        out_buf
     }
 }
 

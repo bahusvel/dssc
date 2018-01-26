@@ -21,18 +21,15 @@ impl Default for FlateCompressor {
 }
 
 impl Compressor for FlateCompressor {
-    fn encode(&mut self, buf: &[u8]) -> Vec<u8> {
-        self.encoder.write(&buf);
+    fn encode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>){
+        self.encoder.write(&in_buf);
         self.encoder.flush();
-        let mut out = Vec::new();
-        out.append(self.encoder.get_mut());
-        out
+        out_buf.append(self.encoder.get_mut());
     }
-    fn decode(&mut self, buf: &[u8]) -> Vec<u8> {
-        self.decoder.write(&buf);
+    fn decode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>) {
+        self.decoder.write(&in_buf);
         self.decoder.flush();
         let mut out = Vec::new();
         out.append(self.decoder.get_mut());
-        out
     }
 }

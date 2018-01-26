@@ -4,7 +4,7 @@ extern crate clap;
 
 use dssc::Compressor;
 use dssc::chunked::ChunkedCompressor;
-use dssc::convolve::ConvolveCompressor;
+use dssc::chunkmap::ChunkMap;
 use dssc::flate::FlateCompressor;
 use dssc::varint::{put_uvarint, read_uvarint};
 use std::env;
@@ -76,7 +76,7 @@ fn main() {
         .unwrap_or(DEFAULT_THRESHOLD);
 
     let mut comp: Box<Compressor> = match matches.value_of("algorithm") {
-        Some("convolve") => Box::new(ConvolveCompressor::new(threshold)),
+        Some("chunkmap") => Box::new(ChunkMap::new()),
         Some("chunked") => Box::new(ChunkedCompressor::new(threshold)),
         Some("flate") => Box::new(FlateCompressor::default()),
         Some(_) | None => panic!("Cannot be none"),

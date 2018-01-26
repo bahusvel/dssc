@@ -1,15 +1,14 @@
 #![feature(iterator_step_by)]
 #![feature(conservative_impl_trait)]
 pub mod chunked;
-pub mod convolve;
 pub mod flate;
 mod cache;
-mod chunkmap;
+pub mod chunkmap;
 pub mod varint;
 
 pub trait Compressor: Send {
-    fn encode(&mut self, buf: &[u8]) -> Vec<u8>;
-    fn decode(&mut self, buf: &[u8]) -> Vec<u8>;
+    fn encode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>);
+    fn decode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>);
 }
 
 /*

@@ -8,6 +8,7 @@ use self::slab::Slab;
 use self::bio::data_structures::interval_tree::IntervalTree;
 
 use super::varint::{put_uvarint, uvarint};
+use super::Compressor;
 
 use std::collections::LinkedList;
 use std::mem::transmute;
@@ -124,9 +125,9 @@ impl Block {
             } => {
                 let varint_len = put_uvarint(&mut varint_buf, (line + 1) as u64);
                 buf.extend_from_slice(&varint_buf[0..varint_len]);
-                let varint_len = put_uvarint(&mut varint_buf, offset as u64);
-                buf.extend_from_slice(&varint_buf[0..varint_len]);
                 let varint_len = put_uvarint(&mut varint_buf, (self.len) as u64);
+                buf.extend_from_slice(&varint_buf[0..varint_len]);
+                let varint_len = put_uvarint(&mut varint_buf, offset as u64);
                 buf.extend_from_slice(&varint_buf[0..varint_len]);
             }
             BlockType::Original => {
@@ -135,6 +136,33 @@ impl Block {
                 buf.extend_from_slice(&varint_buf[0..varint_len]);
                 buf.extend_from_slice(&needle[self.needle_off..self.needle_off + self.len])
             }
+        }
+    }
+
+    fn decode<'a>(buf: &'a[u8], cache: &'a ChunkMap) -> (&'a [u8], usize){
+        let mut i = 0;
+        let (line, varint_len) = uvarint(&buf);
+        if varint_len <= 0 {
+            panic!("Something is wrong with line varint");
+        }
+        let line = line as usize;
+        i += varint_len as usize;
+        let (length, varint_len) = uvarint(&buf[i..]);
+        if varint_len <= 0 {
+            panic!("Something is wrong with length varint");
+        }
+        let length = length as usize;
+        i += varint_len as usize;
+        if line == 0 {
+            (&buf[i..i+length], i + length)
+        } else {
+            let (offset, varint_len) = uvarint(&buf);
+            if varint_len <= 0 {
+                panic!("Something is wrong with offset varint");
+            }
+            let offset = offset as usize;
+            i += varint_len as usize;
+            (&cache.entries[line - 1][offset..offset+length], i)
         }
     }
 }
@@ -189,7 +217,11 @@ impl ChunkMap {
         &self.entries[entry_index]
     }
 
-    fn encode(&self, needle: &[u8], buf: &mut Vec<u8>) {
+
+}
+
+impl Compressor for ChunkMap {
+    fn encode(&mut self, needle: &[u8], buf: &mut Vec<u8>) {
         //let mut matches: Vec<Option<Match>> = Vec::new();
         let mut c_matches: Vec<FnvHashSet<Match>> = needle
             .chunks(4)
@@ -270,7 +302,13 @@ impl ChunkMap {
             bi < chains.len() || last_end < needle.len()
         }
         {}
-        // encode
+    }
+    fn decode(&mut self, mut in_buf: &[u8], out_buf: &mut Vec<u8>) {
+        while in_buf.len() != 0 {
+            let (data, size) = Block::decode(in_buf, &self);
+            out_buf.extend_from_slice(data);
+            in_buf = &in_buf[size..];
+        }
     }
 }
 
