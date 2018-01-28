@@ -9,34 +9,16 @@ use super::varint::{put_uvarint, uvarint};
 use super::Compressor;
 
 use std::fmt;
+use std::hash::{Hash, Hasher};
 
 const EDEN_SIZE: usize = 10;
 const CACHE_SIZE: usize = 255 - EDEN_SIZE;
 const CHUNK_SIZE: usize = 4;
 
-#[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Match {
     line: u32,
     offset: u32,
-}
-
-impl Match {
-    fn next_nth_chunk(&self, n: usize) -> Self {
-        Match {
-            line: self.line,
-            offset: self.offset + (n * CHUNK_SIZE) as u32,
-        }
-    }
-    fn to_block(&self, needle_off: usize, len: usize) -> Block {
-        Block {
-            block_type: BlockType::Delta {
-                line: self.line as usize,
-                offset: self.offset as usize,
-            },
-            needle_off: needle_off,
-            len: len,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -70,42 +52,6 @@ impl fmt::Debug for Block {
 }
 
 impl Block {
-    fn fit(&mut self, needle: &[u8], haystack: &Vec<u8>, left_bound: usize, right_bound: usize) {
-        if self.block_type == BlockType::Original {
-            return;
-        }
-        let (line, offset) = if let BlockType::Delta { line, offset } = self.block_type {
-            (line, offset)
-        } else {
-            (0, 0)
-        };
-
-        let mut bi = 1;
-        let mut fi = self.len;
-
-        //backward search
-        while self.needle_off > bi + left_bound && offset >= bi
-            && needle[self.needle_off - bi] == haystack[offset - bi]
-        {
-            bi += 1;
-        }
-        bi -= 1;
-
-        //forward search
-        while (self.needle_off + fi) < right_bound && (offset + fi) < haystack.len()
-            && needle[self.needle_off + fi] == haystack[offset + fi]
-        {
-            fi += 1;
-        }
-
-        self.len += bi + (fi - self.len);
-        self.needle_off -= bi;
-        self.block_type = BlockType::Delta {
-            line: line,
-            offset: offset - bi,
-        }
-    }
-
     fn encode(&self, needle: &[u8], buf: &mut Vec<u8>) {
         let mut varint_buf = [0; 10];
         match self.block_type {
@@ -152,7 +98,7 @@ impl Block {
 }
 
 pub struct ChunkMap {
-    map: FnvHashMap<u32, FnvHashSet<Match>>,
+    map: FnvHashMap<u32, Vec<Match>>,
     entries: Slab<(Vec<u8>, usize)>,
     insert_threshold: f32,
 }
@@ -180,8 +126,8 @@ impl ChunkMap {
         for (ci, c) in entry.windows(4).enumerate() {
             let ic = slice_to_u32(c);
             map.entry(ic)
-                .or_insert(FnvHashSet::default())
-                .insert(Match {
+                .or_insert(Vec::new())
+                .push(Match {
                     line: index as u32,
                     offset: ci as u32,
                 });
@@ -199,61 +145,77 @@ impl ChunkMap {
     }
 }
 
+fn differs_at(a: &[u8], b: &[u8]) -> usize {
+    let max = a.len().min(b.len());
+    let ap = a.as_ptr() as *const usize;
+    let bp = b.as_ptr() as *const usize;
+    let mut in8 = 0;
+    while in8 < max / 8 && unsafe {*ap.offset(in8 as isize) == *bp.offset(in8 as isize)}{
+        in8 += 1;
+    }
+    let mut i = in8 * 8;
+    while i < max && a[i] == b[i] {
+        i += 1;
+    }
+    i
+}
+
+fn differs_back(a: &[u8], b: &[u8]) -> usize {
+    let al = a.len();
+    let bl = b.len();
+    let max = al.min(bl);
+    let mut i = 1;
+    while i < max && a[al - i] == b[bl - i] {
+        i += 1;
+    }
+    i - 1
+}
+
 impl Compressor for ChunkMap {
     fn encode(&mut self, needle: &[u8], buf: &mut Vec<u8>) {
-        //let mut matches: Vec<Option<Match>> = Vec::new();
-        let mut chains = Vec::new();
-        {
-            let nothing = FnvHashSet::default();
-            let c_matches: Vec<&FnvHashSet<Match>> = needle
-                .chunks(4)
-                .filter(|c| c.len() == 4)
-                .map(|chunk| self.map.get(&slice_to_u32(chunk)).unwrap_or(&nothing))
-                .collect();
+        let chunks: Vec<u32> = needle.chunks(4).filter(|c| c.len() == 4).map(|c|slice_to_u32(c)).collect();
 
-            //println!("Chunks {:?}", c_matches);
-
-            let mut i = 0;
-            while i < c_matches.len() {
-                let mut c_chains = Vec::with_capacity(c_matches[i].len());
-                for m in c_matches[i] {
-                    let mut n = 1;
-                    while i + n < c_matches.len() && c_matches[i + n].contains(&m.next_nth_chunk(n))
-                    {
-                        n += 1;
-                    }
-                    c_chains.push(m.to_block(i * CHUNK_SIZE, n * CHUNK_SIZE));
-                }
-                if let Some(block) = c_chains.into_iter().max_by(|a, b| a.len.cmp(&b.len)) {
-                    i += block.len / 4;
-                    chains.push(block);
-                } else {
-                    i += 1;
-                }
+        let mut chains: Vec<Block> = Vec::new();
+        let mut ci = 0;
+        let mut last_end = 0;
+        while ci < chunks.len() {
+            let m = self.map.get(&chunks[ci]);
+            if m.is_none() {
+                ci += 1;
+                continue;
             }
+            let matches = m.unwrap();
+            let block = matches
+                .iter()
+                .map(|m| {
+                    let line = &self.entries[m.line as usize].0;
+                    let diff_back = differs_back(
+                        &needle[last_end..ci * 4],
+                        &line[..m.offset as usize]
+                    );
+                    let diff_forward = differs_at(
+                        &needle[ci * 4 + 4..],
+                        &line[4 + m.offset as usize..],
+                    );
+                    Block {
+                        block_type: BlockType::Delta {
+                            line: m.line as usize,
+                            offset: m.offset as usize - diff_back,
+                        },
+                        needle_off: ci * 4 - diff_back,
+                        len: diff_forward + 4 + diff_back,
+                    }
+                })
+                .max_by(|a, b| a.len.cmp(&b.len))
+                .unwrap();
+
+            ci += ((block.len + 3) & !0x03) / 4;
+            // it was last.needle_off + last.len -1, but still works, dunno why.
+            last_end = block.needle_off + block.len;
+            chains.push(block);
         }
 
         //println!("Chains {:?}", chains);
-
-        for bi in 0..chains.len() {
-            let lb = if bi == 0 {
-                0
-            } else {
-                let last = &chains[bi - 1];
-                last.needle_off + last.len - 1
-            };
-
-            let rb = chains
-                .get(bi + 1)
-                .map(|n| n.needle_off)
-                .unwrap_or(needle.len());
-            let block = &mut chains[bi];
-            if let BlockType::Delta { line, offset: _ } = block.block_type {
-                block.fit(needle, &self.entries[line].0, lb, rb);
-            }
-        }
-
-        //println!("Fitted {:?}", chains);
 
         let mut last_end = 0;
         let mut bi = 0;
@@ -291,6 +253,7 @@ impl Compressor for ChunkMap {
             self.insert(needle.to_vec());
         }
     }
+
     fn decode(&mut self, mut in_buf: &[u8], out_buf: &mut Vec<u8>) {
         let old_buf_len = out_buf.len();
         let in_buf_len = in_buf.len();
@@ -307,7 +270,7 @@ impl Compressor for ChunkMap {
         }
     }
 }
-
+/*
 #[test]
 pub fn nchunk_test() {
     let mut map = ChunkMap::new();
@@ -319,4 +282,12 @@ pub fn nchunk_test() {
     map.encode("Hello Test Worlds".as_bytes(), &mut buf);
 
     println!("Finished {:?}", buf);
+}
+*/
+
+#[test]
+pub fn diff_test() {
+    let a = b"helloworls";
+    let b = b"helloworld";
+    println!("{:?}", differs_at(a, b));
 }
