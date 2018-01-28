@@ -75,11 +75,7 @@ impl Block {
         if self.block_type == BlockType::Original {
             return;
         }
-        let (line, offset) = if let BlockType::Delta {
-            line,
-            offset,
-        } = self.block_type
-        {
+        let (line, offset) = if let BlockType::Delta { line, offset } = self.block_type {
             (line, offset)
         } else {
             (0, 0)
@@ -114,10 +110,7 @@ impl Block {
     fn encode(&self, needle: &[u8], buf: &mut Vec<u8>) {
         let mut varint_buf = [0; 10];
         match self.block_type {
-            BlockType::Delta {
-                line,
-                offset,
-            } => {
+            BlockType::Delta { line, offset } => {
                 //eprintln!("{},{},{}", line, self.len, offset);
                 let varint_len = put_uvarint(&mut varint_buf, (line + 1) as u64);
                 buf.extend_from_slice(&varint_buf[0..varint_len]);
@@ -135,7 +128,7 @@ impl Block {
         }
     }
 
-    fn decode<'a>(buf: &'a[u8], cache: &'a mut ChunkMap) -> (&'a [u8], usize){
+    fn decode<'a>(buf: &'a [u8], cache: &'a mut ChunkMap) -> (&'a [u8], usize) {
         let mut i = 0;
         let (line, varint_len) = uvarint(&buf);
         assert!(varint_len > 0);
@@ -145,7 +138,7 @@ impl Block {
         let length = length as usize;
         i += varint_len as usize;
         if line == 0 {
-            (&buf[i..i+length], i + length)
+            (&buf[i..i + length], i + length)
         } else {
             let line = (line - 1) as usize;
             let (offset, varint_len) = uvarint(&buf[i..]);
@@ -154,7 +147,7 @@ impl Block {
             i += varint_len as usize;
             //eprintln!("{},{},{}", line, length, offset);
             cache.entries[line].1 += length;
-            (&cache.entries[line].0[offset..offset+length], i)
+            (&cache.entries[line].0[offset..offset + length], i)
         }
     }
 }
@@ -180,7 +173,7 @@ impl ChunkMap {
         ChunkMap {
             map: FnvHashMap::default(),
             entries: Slab::with_capacity(CACHE_SIZE),
-            insert_threshold
+            insert_threshold,
         }
     }
     fn insert(&mut self, entry: Vec<u8>) {
@@ -281,7 +274,7 @@ impl Compressor for ChunkMap {
                 &b
             } else {
                 let block = &chains[bi];
-                if let BlockType::Delta{line, offset:_} = block.block_type {
+                if let BlockType::Delta { line, offset: _ } = block.block_type {
                     self.entries[line].1 += block.len;
                 }
                 bi += 1;
@@ -315,7 +308,7 @@ impl Compressor for ChunkMap {
         let dlen = out_buf.len() - old_buf_len;
         let cr = in_buf_len as f32 / dlen as f32;
         if cr > self.insert_threshold {
-            eprintln!("Inserting {}", cr);
+            //eprintln!("Inserting {}", cr);
             self.insert(out_buf[old_buf_len..].to_vec());
         }
     }
