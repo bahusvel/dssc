@@ -3,7 +3,7 @@ extern crate flate2;
 use std::io::Write;
 
 use super::Compressor;
-use self::flate2::write::{DeflateEncoder, DeflateDecoder};
+use self::flate2::write::{DeflateDecoder, DeflateEncoder};
 use self::flate2::Compression;
 
 pub struct FlateCompressor {
@@ -21,7 +21,7 @@ impl Default for FlateCompressor {
 }
 
 impl Compressor for FlateCompressor {
-    fn encode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>){
+    fn encode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>) {
         self.encoder.write(&in_buf);
         self.encoder.flush();
         out_buf.append(self.encoder.get_mut());

@@ -1,6 +1,6 @@
 use super::varint::{put_uvarint, uvarint};
 use super::Compressor;
-use super::cache::{VecCache, DSSCache};
+use super::cache::{DSSCache, VecCache};
 use std::fmt;
 
 const CHUNK_SIZE: usize = 4;
@@ -115,7 +115,7 @@ impl Default for ChunkedCompressor {
 }
 
 impl Compressor for ChunkedCompressor {
-    fn encode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>){
+    fn encode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>) {
         //let mut out_buf = Vec::new();
         let old_buf_len = out_buf.len();
         let hit_index = compress(in_buf, out_buf, &self.cache);
@@ -127,17 +127,17 @@ impl Compressor for ChunkedCompressor {
 
         let cr = clen as f32 / in_buf.len() as f32;
         eprintln!(
-        "cr {}/{}={} cache entry {}",
-        clen,
-        in_buf.len(),
-        cr,
-        hit_index,
-    );
+            "cr {}/{}={} cache entry {}",
+            clen,
+            in_buf.len(),
+            cr,
+            hit_index,
+        );
         if cr > self.insert_threshold {
             self.cache.cache_insert(&in_buf);
         }
     }
-    fn decode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>){
+    fn decode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>) {
         let old_buf_len = out_buf.len();
         let hit_index = decompress(in_buf, out_buf, &self.cache);
         let dlen = out_buf.len() - old_buf_len;
@@ -162,8 +162,8 @@ fn chunk_match(needle: &[u8], haystacks: &VecCache) -> Vec<Vec<usize>> {
             if let Some(&last) = chunks.last() {
                 if last != 0 {
                     let hi = last - 1 + CHUNK_SIZE;
-                    if hi + CHUNK_SIZE < haystack.data.len() - 1 &&
-                        (&haystack.data[hi..hi + CHUNK_SIZE] == chunk)
+                    if hi + CHUNK_SIZE < haystack.data.len() - 1
+                        && (&haystack.data[hi..hi + CHUNK_SIZE] == chunk)
                     {
                         chunks.push(hi + 1);
                         continue 'next_chunk;
@@ -183,7 +183,6 @@ fn chunk_match(needle: &[u8], haystacks: &VecCache) -> Vec<Vec<usize>> {
     }
     return results;
 }
-
 
 #[derive(Debug, PartialEq)]
 enum BlockType {
@@ -229,15 +228,15 @@ impl Block {
         let mut bi = 1;
         let mut od = 0;
         let mut fi = self.len;
-        while self.needle_off > bi + left_bound && self.offset > bi &&
-            needle[self.needle_off - bi] == haystack[self.offset - bi]
+        while self.needle_off > bi + left_bound && self.offset > bi
+            && needle[self.needle_off - bi] == haystack[self.offset - bi]
         {
             od += 1;
             self.len += 1;
             bi += 1;
         }
-        while (self.needle_off + fi) < right_bound && (self.offset + fi) < haystack.len() &&
-            needle[self.needle_off + fi] == haystack[self.offset + fi]
+        while (self.needle_off + fi) < right_bound && (self.offset + fi) < haystack.len()
+            && needle[self.needle_off + fi] == haystack[self.offset + fi]
         {
             self.len += 1;
             fi += 1;
@@ -264,7 +263,6 @@ impl Block {
         }
     }
 }
-
 
 fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<Block> {
     let mut blocks: Vec<Block> = Vec::new();
@@ -338,7 +336,6 @@ fn expand_blocks(needle: &[u8], haystack: &Vec<u8>, result: &Vec<usize>) -> Vec<
     blocks.retain(|b| b.len != 0);
     blocks
 }
-
 
 /*
 #[test]

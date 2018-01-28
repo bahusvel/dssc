@@ -1,9 +1,9 @@
-use std::io::{Read, Error, ErrorKind};
+use std::io::{Error, ErrorKind, Read};
 // these are roughly ported from https://golang.org/src/encoding/binary/varint.go
 
 pub fn put_uvarint(buf: &mut [u8], mut x: u64) -> usize {
     let mut i = 0;
-    while x >= 0x80 {;
+    while x >= 0x80 {
         buf[i] = x as u8 | 0x80;
         x >>= 7;
         i += 1;

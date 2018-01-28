@@ -8,7 +8,6 @@ use self::slab::Slab;
 use super::varint::{put_uvarint, uvarint};
 use super::Compressor;
 
-use std::mem::transmute;
 use std::fmt;
 
 const EDEN_SIZE: usize = 10;
@@ -17,22 +16,22 @@ const CHUNK_SIZE: usize = 4;
 
 #[derive(Hash, PartialEq, Eq, Copy, Clone, Debug)]
 pub struct Match {
-    line: usize,
-    offset: usize,
+    line: u32,
+    offset: u32,
 }
 
 impl Match {
     fn next_nth_chunk(&self, n: usize) -> Self {
         Match {
             line: self.line,
-            offset: self.offset + n * CHUNK_SIZE,
+            offset: self.offset + (n * CHUNK_SIZE) as u32,
         }
     }
     fn to_block(&self, needle_off: usize, len: usize) -> Block {
         Block {
             block_type: BlockType::Delta {
-                line: self.line,
-                offset: self.offset,
+                line: self.line as usize,
+                offset: self.offset as usize,
             },
             needle_off: needle_off,
             len: len,
@@ -85,16 +84,16 @@ impl Block {
         let mut fi = self.len;
 
         //backward search
-        while self.needle_off > bi + left_bound && offset >= bi &&
-            needle[self.needle_off - bi] == haystack[offset - bi]
+        while self.needle_off > bi + left_bound && offset >= bi
+            && needle[self.needle_off - bi] == haystack[offset - bi]
         {
             bi += 1;
         }
         bi -= 1;
 
         //forward search
-        while (self.needle_off + fi) < right_bound && (offset + fi) < haystack.len() &&
-            needle[self.needle_off + fi] == haystack[offset + fi]
+        while (self.needle_off + fi) < right_bound && (offset + fi) < haystack.len()
+            && needle[self.needle_off + fi] == haystack[offset + fi]
         {
             fi += 1;
         }
@@ -158,14 +157,9 @@ pub struct ChunkMap {
     insert_threshold: f32,
 }
 
-pub fn chunk_to_u32(chunk: [u8; 4]) -> u32 {
-    unsafe { transmute::<[u8; 4], u32>(chunk) }
-}
-
 pub fn slice_to_u32(s: &[u8]) -> u32 {
     assert!(s.len() == 4);
-    let chunk = [s[0], s[1], s[2], s[3]];
-    chunk_to_u32(chunk)
+    unsafe { *(s.as_ptr() as *const u32) }
 }
 
 impl ChunkMap {
@@ -185,21 +179,21 @@ impl ChunkMap {
         let ref mut map = self.map;
         for (ci, c) in entry.windows(4).enumerate() {
             let ic = slice_to_u32(c);
-            map.entry(ic).or_insert(FnvHashSet::default()).insert(
-                Match {
-                    line: index,
-                    offset: ci,
-                },
-            );
+            map.entry(ic)
+                .or_insert(FnvHashSet::default())
+                .insert(Match {
+                    line: index as u32,
+                    offset: ci as u32,
+                });
         }
     }
     fn remove(&mut self, entry_index: usize) -> Vec<u8> {
         let entry = self.entries.remove(entry_index);
         for c in entry.0.windows(4) {
             let ic = slice_to_u32(c);
-            self.map.get_mut(&ic).map(
-                |v| v.retain(|m| m.line != entry_index),
-            );
+            self.map
+                .get_mut(&ic)
+                .map(|v| v.retain(|m| m.line != entry_index as u32));
         }
         entry.0
     }
@@ -208,37 +202,37 @@ impl ChunkMap {
 impl Compressor for ChunkMap {
     fn encode(&mut self, needle: &[u8], buf: &mut Vec<u8>) {
         //let mut matches: Vec<Option<Match>> = Vec::new();
-        let c_matches: Vec<FnvHashSet<Match>> = needle
-            .chunks(4)
-            .filter(|c| c.len() == 4)
-            .map(|chunk| {
-                self.map
-                    .get(&slice_to_u32(chunk))
-                    .map(|s| s.clone())
-                    .unwrap_or(FnvHashSet::default())
-            })
-            .collect();
-
-        //println!("Chunks {:?}", c_matches);
-
         let mut chains = Vec::new();
-        let mut i = 0;
-        while i < c_matches.len() {
-            let mut c_chains = Vec::with_capacity(c_matches[i].len());
-            for m in &c_matches[i] {
-                let mut n = 1;
-                while i + n < c_matches.len() && c_matches[i + n].contains(&m.next_nth_chunk(n)) {
-                    n += 1;
+        {
+            let nothing = FnvHashSet::default();
+            let c_matches: Vec<&FnvHashSet<Match>> = needle
+                .chunks(4)
+                .filter(|c| c.len() == 4)
+                .map(|chunk| self.map.get(&slice_to_u32(chunk)).unwrap_or(&nothing))
+                .collect();
+
+            //println!("Chunks {:?}", c_matches);
+
+            let mut i = 0;
+            while i < c_matches.len() {
+                let mut c_chains = Vec::with_capacity(c_matches[i].len());
+                for m in c_matches[i] {
+                    let mut n = 1;
+                    while i + n < c_matches.len() && c_matches[i + n].contains(&m.next_nth_chunk(n))
+                    {
+                        n += 1;
+                    }
+                    c_chains.push(m.to_block(i * CHUNK_SIZE, n * CHUNK_SIZE));
                 }
-                c_chains.push(m.to_block(i * CHUNK_SIZE, n * CHUNK_SIZE));
-            }
-            if let Some(block) = c_chains.into_iter().max_by(|a, b| a.len.cmp(&b.len)) {
-                i += block.len / 4;
-                chains.push(block);
-            } else {
-                i += 1;
+                if let Some(block) = c_chains.into_iter().max_by(|a, b| a.len.cmp(&b.len)) {
+                    i += block.len / 4;
+                    chains.push(block);
+                } else {
+                    i += 1;
+                }
             }
         }
+
         //println!("Chains {:?}", chains);
 
         for bi in 0..chains.len() {
@@ -249,9 +243,10 @@ impl Compressor for ChunkMap {
                 last.needle_off + last.len - 1
             };
 
-            let rb = chains.get(bi + 1).map(|n| n.needle_off).unwrap_or(
-                needle.len(),
-            );
+            let rb = chains
+                .get(bi + 1)
+                .map(|n| n.needle_off)
+                .unwrap_or(needle.len());
             let block = &mut chains[bi];
             if let BlockType::Delta { line, offset: _ } = block.block_type {
                 block.fit(needle, &self.entries[line].0, lb, rb);
@@ -289,8 +284,7 @@ impl Compressor for ChunkMap {
             //println!("{:?}", last_end);
 
             bi < chains.len() || last_end < needle.len()
-        }
-        {}
+        } {}
         let clen = buf.len() - old_buf_len;
         let cr = clen as f32 / needle.len() as f32;
         if cr > self.insert_threshold {
@@ -313,7 +307,6 @@ impl Compressor for ChunkMap {
         }
     }
 }
-
 
 #[test]
 pub fn nchunk_test() {

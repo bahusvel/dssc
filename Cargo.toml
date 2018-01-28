@@ -11,6 +11,9 @@ path = "src/lib.rs"
 name = "linedssc"
 path = "src/linedssc/main.rs"
 
+[profile.release]
+debug = true
+
 [dependencies]
 byteorder = "1.1.0"
 clap = "2.29.0"
