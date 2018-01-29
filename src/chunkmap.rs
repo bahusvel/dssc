@@ -177,7 +177,8 @@ impl Compressor for ChunkMap {
             .map(|c| slice_to_u32(c))
             .collect();
 
-        let mut chains: Vec<Block> = Vec::new();
+        let old_buf_len = buf.len();
+
         let mut ci = 0;
         let mut last_end = 0;
         while ci < chunks.len() {
@@ -207,44 +208,31 @@ impl Compressor for ChunkMap {
                 .max_by(|a, b| a.len.cmp(&b.len))
                 .unwrap();
 
+            if last_end != block.needle_off {
+                Block {
+                    block_type: BlockType::Original,
+                    needle_off: last_end,
+                    len: block.needle_off - last_end,
+                }.encode(needle, buf);
+            }
+
             ci += ((block.len + 3) & !0x03) / 4;
             // it was last.needle_off + last.len -1, but still works, dunno why.
             last_end = block.needle_off + block.len;
-            chains.push(block);
+            if let BlockType::Delta { line, offset: _ } = block.block_type {
+                self.entries[line].1 += block.len;
+            }
+            block.encode(needle, buf);
         }
 
-        //println!("Chains {:?}", chains);
-
-        let mut last_end = 0;
-        let mut bi = 0;
-        let old_buf_len = buf.len();
-        while {
-            let next_off = chains.get(bi).map(|b| b.needle_off).unwrap_or(needle.len());
-            let b = Block {
+        if last_end != needle.len() {
+            Block {
                 block_type: BlockType::Original,
                 needle_off: last_end,
-                len: next_off - last_end,
-            };
-            let block = if b.len != 0 {
-                &b
-            } else {
-                let block = &chains[bi];
-                if let BlockType::Delta { line, offset: _ } = block.block_type {
-                    self.entries[line].1 += block.len;
-                }
-                bi += 1;
-                block
-            };
+                len: needle.len() - last_end,
+            }.encode(needle, buf);
+        }
 
-            //println!("{:?}", block);
-
-            block.encode(needle, buf);
-            last_end = block.needle_off + block.len;
-
-            //println!("{:?}", last_end);
-
-            bi < chains.len() || last_end < needle.len()
-        } {}
         let clen = buf.len() - old_buf_len;
         let cr = clen as f32 / needle.len() as f32;
         if cr > self.insert_threshold {
