@@ -125,12 +125,10 @@ impl ChunkMap {
         let ref mut map = self.map;
         for (ci, c) in entry.windows(4).enumerate() {
             let ic = slice_to_u32(c);
-            map.entry(ic)
-                .or_insert(Vec::new())
-                .push(Match {
-                    line: index as u32,
-                    offset: ci as u32,
-                });
+            map.entry(ic).or_insert(Vec::new()).push(Match {
+                line: index as u32,
+                offset: ci as u32,
+            });
         }
     }
     fn remove(&mut self, entry_index: usize) -> Vec<u8> {
@@ -150,7 +148,7 @@ fn differs_at(a: &[u8], b: &[u8]) -> usize {
     let ap = a.as_ptr() as *const usize;
     let bp = b.as_ptr() as *const usize;
     let mut in8 = 0;
-    while in8 < max / 8 && unsafe {*ap.offset(in8 as isize) == *bp.offset(in8 as isize)}{
+    while in8 < max / 8 && unsafe { *ap.offset(in8 as isize) == *bp.offset(in8 as isize) } {
         in8 += 1;
     }
     let mut i = in8 * 8;
@@ -173,14 +171,18 @@ fn differs_back(a: &[u8], b: &[u8]) -> usize {
 
 impl Compressor for ChunkMap {
     fn encode(&mut self, needle: &[u8], buf: &mut Vec<u8>) {
-        let chunks: Vec<u32> = needle.chunks(4).filter(|c| c.len() == 4).map(|c|slice_to_u32(c)).collect();
+        let chunks: Vec<u32> = needle
+            .chunks(4)
+            .filter(|c| c.len() == 4)
+            .map(|c| slice_to_u32(c))
+            .collect();
 
         let mut chains: Vec<Block> = Vec::new();
         let mut ci = 0;
         let mut last_end = 0;
         while ci < chunks.len() {
             let m = self.map.get(&chunks[ci]);
-            if m.is_none() {
+            if m.is_none() || m.unwrap().len() == 0 {
                 ci += 1;
                 continue;
             }
@@ -189,14 +191,10 @@ impl Compressor for ChunkMap {
                 .iter()
                 .map(|m| {
                     let line = &self.entries[m.line as usize].0;
-                    let diff_back = differs_back(
-                        &needle[last_end..ci * 4],
-                        &line[..m.offset as usize]
-                    );
-                    let diff_forward = differs_at(
-                        &needle[ci * 4 + 4..],
-                        &line[4 + m.offset as usize..],
-                    );
+                    let diff_back =
+                        differs_back(&needle[last_end..ci * 4], &line[..m.offset as usize]);
+                    let diff_forward =
+                        differs_at(&needle[ci * 4 + 4..], &line[4 + m.offset as usize..]);
                     Block {
                         block_type: BlockType::Delta {
                             line: m.line as usize,
