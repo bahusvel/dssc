@@ -135,9 +135,9 @@ impl ChunkMap {
         let entry = self.entries.remove(entry_index);
         for c in entry.0.windows(4) {
             let ic = slice_to_u32(c);
-            self.map
-                .get_mut(&ic)
-                .map(|v| v.retain(|m| m.line != entry_index as u32));
+            self.map.get_mut(&ic).map(|v| {
+                v.retain(|m| m.line != entry_index as u32)
+            });
         }
         entry.0
     }

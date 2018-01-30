@@ -5,7 +5,7 @@ extern crate dssc;
 use dssc::Compressor;
 use dssc::chunked::ChunkedCompressor;
 use dssc::chunkmap::ChunkMap;
-use dssc::flate::FlateCompressor;
+use dssc::other::FlateStream;
 use dssc::varint::{put_uvarint, read_uvarint};
 use std::ops::DerefMut;
 use std::io::{stdin, stdout, BufRead, BufReader, Error, Read, Write};
@@ -98,7 +98,7 @@ fn main() {
     let mut comp: Box<Compressor> = match matches.value_of("algorithm") {
         Some("chunkmap") => Box::new(ChunkMap::new(threshold)),
         Some("chunked") => Box::new(ChunkedCompressor::new(threshold)),
-        Some("flate") => Box::new(FlateCompressor::default()),
+        Some("flate") => Box::new(FlateStream::default()),
         Some(_) | None => panic!("Cannot be none"),
     };
 

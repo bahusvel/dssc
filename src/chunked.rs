@@ -162,8 +162,8 @@ fn chunk_match(needle: &[u8], haystacks: &VecCache) -> Vec<Vec<usize>> {
             if let Some(&last) = chunks.last() {
                 if last != 0 {
                     let hi = last - 1 + CHUNK_SIZE;
-                    if hi + CHUNK_SIZE < haystack.data.len() - 1
-                        && (&haystack.data[hi..hi + CHUNK_SIZE] == chunk)
+                    if hi + CHUNK_SIZE < haystack.data.len() - 1 &&
+                        (&haystack.data[hi..hi + CHUNK_SIZE] == chunk)
                     {
                         chunks.push(hi + 1);
                         continue 'next_chunk;
@@ -228,15 +228,15 @@ impl Block {
         let mut bi = 1;
         let mut od = 0;
         let mut fi = self.len;
-        while self.needle_off > bi + left_bound && self.offset > bi
-            && needle[self.needle_off - bi] == haystack[self.offset - bi]
+        while self.needle_off > bi + left_bound && self.offset > bi &&
+            needle[self.needle_off - bi] == haystack[self.offset - bi]
         {
             od += 1;
             self.len += 1;
             bi += 1;
         }
-        while (self.needle_off + fi) < right_bound && (self.offset + fi) < haystack.len()
-            && needle[self.needle_off + fi] == haystack[self.offset + fi]
+        while (self.needle_off + fi) < right_bound && (self.offset + fi) < haystack.len() &&
+            needle[self.needle_off + fi] == haystack[self.offset + fi]
         {
             self.len += 1;
             fi += 1;

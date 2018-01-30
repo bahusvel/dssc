@@ -1,7 +1,7 @@
 #![feature(iterator_step_by)]
 #![feature(conservative_impl_trait)]
 pub mod chunked;
-pub mod flate;
+pub mod other;
 mod cache;
 pub mod chunkmap;
 pub mod varint;
