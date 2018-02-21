@@ -9,7 +9,7 @@ use std::io::{Error, ErrorKind, Read, Write};
 use std::ptr;
 
 use super::Compressor;
-
+/*
 pub struct ZstdStream {
     encoder: stream::Encoder<Vec<u8>>,
     decoder: stream::Decoder<Vec<u8>>,
@@ -42,6 +42,7 @@ impl Compressor for ZstdStream {
         out_buf.append(self.decoder.get_mut());
     }
 }
+*/
 
 pub struct FlateStream {
     encoder: DeflateEncoder<WriteProxy<Vec<u8>>>,
@@ -136,9 +137,7 @@ impl<W: Write + Sized> Write for WriteProxy<W> {
 
 impl<W: Write + Sized> WriteProxy<W> {
     pub fn new() -> Self {
-        WriteProxy {
-            inner: ptr::null_mut(),
-        }
+        WriteProxy { inner: ptr::null_mut() }
     }
 
     pub fn set(&mut self, writer: &mut W) -> ProxyGuard<W> {
