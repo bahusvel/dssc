@@ -1,48 +1,77 @@
 extern crate flate2;
 extern crate zstd;
+extern crate zstd_safe;
 
-use self::zstd::stream;
+use self::zstd::block;
 use self::flate2::write::{DeflateDecoder, DeflateEncoder};
 use self::flate2::Compression;
+use super::varint::{put_uvarint, uvarint};
 
 use std::io::{Error, ErrorKind, Read, Write};
 use std::ptr;
 
 use super::Compressor;
-/*
-pub struct ZstdStream {
-    encoder: stream::Encoder<Vec<u8>>,
-    decoder: stream::Decoder<Vec<u8>>,
+
+pub struct ZstdBlock {
+    encoder: block::Compressor,
+    decoder: block::Decompressor,
+    level: i32,
 }
 
-impl ZstdStream {
-    fn new(level: i32) -> Self {
-        ZstdCompressor {
-            encoder: stream::Encoder::new(Vec::new(), level),
-            decoder: stream::Decoder::new(Vec::new()),
+impl ZstdBlock {
+    fn new(level: i32, dict: Option<Vec<u8>>) -> Self {
+        if dict.is_some() {
+            let dict = dict.unwrap();
+            ZstdBlock {
+                encoder: block::Compressor::with_dict(dict.clone()),
+                decoder: block::Decompressor::with_dict(dict),
+                level: level,
+            }
+        } else {
+            ZstdBlock {
+                encoder: block::Compressor::new(),
+                decoder: block::Decompressor::new(),
+                level: level,
+            }
         }
     }
 }
 
-impl Default for ZstdStream {
+impl Default for ZstdBlock {
     fn default() -> Self {
-        ZstdStream::new(0);
+        ZstdBlock::new(0, None)
     }
 }
 
-impl Compressor for ZstdStream {
+impl Compressor for ZstdBlock {
     fn encode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>) {
-        self.encoder.write(&in_buf);
-        self.encoder.flush();
-        out_buf.append(self.encoder.get_mut());
+        let buffer_len = zstd_safe::compress_bound(in_buf.len());
+        let mut varint_buf = [0; 10];
+        let varint_len = put_uvarint(&mut varint_buf, in_buf.len() as u64);
+        out_buf.extend_from_slice(&varint_buf[0..varint_len]);
+
+        let original_len = out_buf.len();
+        out_buf.reserve(buffer_len);
+
+        unsafe { out_buf.set_len(original_len + buffer_len) }
+        let len = self.encoder
+            .compress_to_buffer(in_buf, &mut out_buf[original_len + 4..], self.level)
+            .expect("Compression failed");
+        unsafe { out_buf.set_len(original_len + len) }
     }
+
     fn decode(&mut self, in_buf: &[u8], out_buf: &mut Vec<u8>) {
-        self.decoder.write(&in_buf);
-        self.decoder.flush();
-        out_buf.append(self.decoder.get_mut());
+        let original_len = out_buf.len();
+        let (decomp_len, varint_len) = uvarint(&in_buf);
+        out_buf.reserve(decomp_len as usize);
+
+        unsafe { out_buf.set_len(original_len + decomp_len as usize) }
+        self.decoder
+            .decompress_to_buffer(&in_buf[varint_len as usize..], &mut out_buf[original_len..])
+            .expect("Decompression failed");
     }
 }
-*/
+
 
 pub struct FlateStream {
     encoder: DeflateEncoder<WriteProxy<Vec<u8>>>,
